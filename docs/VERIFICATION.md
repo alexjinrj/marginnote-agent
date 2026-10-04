@@ -45,3 +45,9 @@ The Codex Desktop conversational invocation, Claudian invocation, disconnect/rec
 ## PDF locator update — 2026-10-03
 
 Per user direction, the public PDF tool is now `marginnote.get_current_pdf`. It returns only the local absolute PDF path, file name, document ID and current zero-based/one-based page positions. The previous public `read_pdf` tool is removed from MCP and the bridge allowlist. The old internal implementation remains in legacy code and is not reachable through the bridge. A `smoke:pdf` command checks that the file can be opened from the local Node process without printing its content. Real MarginNote path and page behavior still require installation of the 0.5.0 addon and a running shared Host.
+
+## Library and writing update — 2026-10-04
+
+Version 0.6.0 adds paged notebook/card reads, single-card creation, comment append, conversation-outline card creation, excerpt-to-title, and preview/apply card moves. Host write calls require `MN_ENABLE_WRITES=1`; read calls remain available with writes disabled. Native API support was checked against the official Addon headers for `allNotebooks`, `notes`, `createNoteWithTitle`, `addChild`, `insertChild`, `noteTitle`, and `undoGrouping`.
+
+Automated tests exercise a simulated MarginNote object graph plus SDK → stdio MCP → HTTP Host → addon queue mapping. The final local run passed 46 tests; addon build/verify passed. These checks do not prove native MarginNote 4 persistence or Undo. Install the 0.6.0 addon and test writes only in a disposable study set: create a card and framework, append a comment, preview and move a card, compare the UI and readback, then use MarginNote Undo. Native Summary creation is not exposed.

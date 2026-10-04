@@ -3,9 +3,9 @@ import { tools } from './tools.mjs';
 import { errorData } from './errors.mjs';
 import { MarginNoteClient } from './marginnote-client.mjs';
 export function createMcpServer(client = new MarginNoteClient()) {
-  const server = new McpServer({ name: 'marginnote', version: '0.5.0' });
+  const server = new McpServer({ name: 'marginnote', version: '0.6.0' });
   for (const [key, definition] of Object.entries(tools)) {
-    server.registerTool(`marginnote.${key}`, { description: definition.description, inputSchema: definition.schema, annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true } }, async (args) => {
+    server.registerTool(`marginnote.${key}`, { description: definition.description, inputSchema: definition.schema, annotations: { readOnlyHint: !definition.writes, destructiveHint: false, openWorldHint: false, idempotentHint: !definition.writes } }, async (args) => {
       try {
         const result = await client.call(key, args);
         return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };

@@ -29,7 +29,7 @@ test('bridge-only addon refuses ambiguous scenes and mutations, tracks scene dis
   methods.sceneDidDisconnect();
   context.MNAgentBridge.poll();
   assert.equal(results.at(-1).result.windowId, first.mnBridgeWindowId);
-  queued = { requestId: '2', tool: 'append_comment', arguments: {} };
+  queued = { requestId: '2', tool: 'delete_note', arguments: {} };
   context.MNAgentBridge.poll();
   assert.equal(results.at(-1).errorCode, 'INVALID_ARGUMENT');
   assert.equal(executeCount, 1);

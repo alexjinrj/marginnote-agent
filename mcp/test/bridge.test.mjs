@@ -39,7 +39,7 @@ test('SDK stdio discovery -> HTTP addon queue -> normalized context/search/get_n
   await post('/api/marginnote/connect', { clientId: 'test' });
   const a = await sdkClient(t, port);
   const b = await sdkClient(t, port);
-  assert.deepEqual((await a.listTools()).tools.map(x => x.name), ['marginnote.get_context', 'marginnote.search_notes', 'marginnote.get_note', 'marginnote.get_current_pdf']);
+  assert.deepEqual((await a.listTools()).tools.map(x => x.name), ['marginnote.get_context', 'marginnote.search_notes', 'marginnote.get_note', 'marginnote.get_current_pdf', 'marginnote.list_notebooks', 'marginnote.get_library_page', 'marginnote.create_card', 'marginnote.append_comment', 'marginnote.create_framework', 'marginnote.promote_excerpt_to_title', 'marginnote.preview_reorganization', 'marginnote.apply_reorganization']);
   const contextCall = a.callTool({ name: 'marginnote.get_context', arguments: {} });
   const searchCall = b.callTool({ name: 'marginnote.search_notes', arguments: { query: 'CAP' } });
   for (let i = 0; i < 2; i++) {
@@ -78,12 +78,33 @@ test('MCP validation and business errors preserve server health', async t => {
   assert.equal(invalid.isError, true);
   const offline = await client.callTool({ name: 'marginnote.get_context', arguments: {} });
   assert.equal(offline.structuredContent.error.code, 'MARGINNOTE_ADDON_UNAVAILABLE');
-  assert.equal((await client.listTools()).tools.length, 4);
+  assert.equal((await client.listTools()).tools.length, 12);
 });
 
-test('RPC blocks mutation, extra fields, invalid limits and browser origins', async t => {
+test('SDK exposes paged library reads and explicit writes through the enabled Host', async t => {
+  const { url, post, port } = await fixture(t, { writesEnabled: true });
+  await post('/api/marginnote/connect', { clientId: 'test' });
+  const client = await sdkClient(t, port);
+  const definitions = (await client.listTools()).tools;
+  assert.equal(definitions.find(x => x.name === 'marginnote.get_library_page').annotations.readOnlyHint, true);
+  assert.equal(definitions.find(x => x.name === 'marginnote.create_framework').annotations.readOnlyHint, false);
+  assert.equal(definitions.find(x => x.name === 'marginnote.create_framework').annotations.idempotentHint, false);
+  const read = client.callTool({ name: 'marginnote.get_library_page', arguments: { notebook_id: 'nb', limit: 2 } });
+  const request = await next(url);
+  assert.equal(request.tool, 'get_library_page');
+  assert.deepEqual(request.arguments, { topicId: 'nb', offset: 0, limit: 2 });
+  await post('/api/marginnote/result', { requestId: request.requestId, success: true, result: { topicId: 'nb', snapshotId: 'one', totalCount: 1, nextOffset: null, cards: [{ noteId: 'n1', parentNoteId: '', order: 0, title: 'A' }] } });
+  assert.equal((await read).structuredContent.cards[0].note_id, 'n1');
+  const write = client.callTool({ name: 'marginnote.create_framework', arguments: { notebook_id: 'nb', nodes: [{ key: 'root', title: 'New' }] } });
+  const request2 = await next(url);
+  assert.equal(request2.tool, 'create_framework');
+  await post('/api/marginnote/result', { requestId: request2.requestId, success: true, result: { topicId: 'nb', allVerified: true, cards: [{ key: 'root', noteId: 'n2', parentNoteId: '', title: 'New', verified: true }] } });
+  assert.equal((await write).structuredContent.all_verified, true);
+});
+
+test('RPC blocks unsupported mutation, extra fields, invalid limits and browser origins', async t => {
   const { post, url } = await fixture(t);
-  for (const body of [{ tool: 'append_comment', arguments: { note_id: 'x', text: 'bad' } }, { tool: 'search_notes', arguments: { query: 'CAP', limit: -1 } }, { tool: 'get_context', arguments: { unexpected: true } }]) {
+  for (const body of [{ tool: 'delete_note', arguments: { note_id: 'x' } }, { tool: 'search_notes', arguments: { query: 'CAP', limit: -1 } }, { tool: 'get_context', arguments: { unexpected: true } }]) {
     const response = await post('/api/bridge/call', body);
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error.code, 'INVALID_ARGUMENT');
@@ -93,6 +114,9 @@ test('RPC blocks mutation, extra fields, invalid limits and browser origins', as
     http.get(url + '/health', { headers: { Host: 'evil.test' } }, res => { res.resume(); resolve(res.statusCode); }).on('error', reject);
   });
   assert.equal(invalidHostStatus, 403);
+  const write = await post('/api/bridge/call', { tool: 'create_card', arguments: { notebook_id: 'nb', title: 'Draft' } });
+  assert.equal(write.status, 503);
+  assert.equal((await write.json()).error.code, 'WRITE_DISABLED');
 });
 
 test('offline, recovery, native error and timeout mapping', async t => {

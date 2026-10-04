@@ -1,9 +1,9 @@
 {
   "name": "marginnote-agent",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
-  "description": "Local read-only MarginNote MCP bridge for Codex",
+  "description": "Local MarginNote MCP bridge for Codex",
   "engines": {
     "node": ">=20"
   },

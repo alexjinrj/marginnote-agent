@@ -77,8 +77,8 @@ var MNAgentBridge = {
           ambiguous.code = "AMBIGUOUS_CONTEXT";
           throw ambiguous;
         }
-        if (["get_context", "search_notes", "get_note", "get_current_pdf"].indexOf(request.tool) < 0) {
-          var unsupported = new Error("Tool is not enabled in the read-only PoC");
+        if (["get_context", "search_notes", "get_note", "get_current_pdf", "list_notebooks", "get_library_page", "create_card", "append_comment", "create_framework", "promote_excerpt_to_title", "preview_reorganization", "apply_reorganization"].indexOf(request.tool) < 0) {
+          var unsupported = new Error("Tool is not enabled in this bridge");
           unsupported.code = "INVALID_ARGUMENT";
           throw unsupported;
         }

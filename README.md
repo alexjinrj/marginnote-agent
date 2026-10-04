@@ -1,15 +1,18 @@
 # MarginNote MCP Bridge
 
-本地只读 MCP 桥接：Claudian / Codex → stdio MCP → 共享 RPC Host → MarginNote 4 插件。
+本地 MCP 桥接：Claudian / Codex → stdio MCP → 共享 RPC Host → MarginNote 4 插件。
 
-当前开放四个只读工具：
+当前开放的只读工具：
 
 - `marginnote.get_context`
 - `marginnote.search_notes`
 - `marginnote.get_note`
 - `marginnote.get_current_pdf`
+- `marginnote.list_notebooks`
+- `marginnote.get_library_page`
+- `marginnote.preview_reorganization`
 
-Host 和插件都拒绝其他工具，包括写操作。无模型配置、API Key、聊天界面或会话持久化。MarginNote 返回的内容可能由 Codex 发送给其模型服务。
+写入工具：`create_card`、`append_comment`、`create_framework`、`promote_excerpt_to_title`、`apply_reorganization`。Host 默认禁用写入；在真实 MarginNote 的可丢弃学习集上验证后，使用 `MN_ENABLE_WRITES=1 ./scripts/start-bridge.zsh` 启动 Host 才会开放。无模型配置、API Key、聊天界面或会话持久化。MarginNote 返回的内容可能由 Codex 发送给其模型服务。
 
 本机依赖及插件包已构建完成，可直接运行 `./scripts/start-bridge.zsh` 启动 Host，然后安装插件。可复制的本机配置见 [codex-mcp.toml](docs/codex-mcp.toml)。
 
@@ -61,6 +64,12 @@ tool_timeout_sec = 30
 - `get_note`：必须提供从上下文或搜索取得的 note_id。保留 ID 原值；正文每字段最多 20,000 字符，评论和子节点最多各 100 项，截断有标记。过大的总响应报错，不静默裁剪成无效 JSON。
 - `get_context`：返回 available、window_id、notebook、document、focus_note 和 selection_text。无活动学习上下文时 available=false。
 - `get_current_pdf`：无参数，只返回当前打开 PDF 的本地绝对路径、文件名、文档 ID、零基 `page_index` 和一基 `page_number`，不返回文档内容。Codex 应使用 `file_path` 在本机打开 PDF，再阅读 `page_number`；切换文档或页码后重新调用。若 Codex 无法访问该路径，会报告文件访问错误；本工具不会隐式复制或上传 PDF。
+- `list_notebooks`：分页列出学习集；`next_offset` 为空时才算全部列完。学习集不是 PDF 文件。
+- `get_library_page`：按学习集分页读卡片树，返回 `total_count`、稳定卡片 ID、父卡片 ID、顺序、来源文档及有限长度的内容。下一页必须传回 `snapshot_id`；内容截断时对该卡片再调用 `get_note`。
+- `create_card` / `append_comment`：在指定学习集创建一张卡片，或给已有卡片追加正文。未知结果的超时不能盲目重试。
+- `create_framework`：由 Codex 将当前对话或用户提供的聊天记录整理成有序节点列表，再在指定学习集创建卡片层级；每次最多 30 张。桥接层不读取聊天历史。
+- `promote_excerpt_to_title`：将卡片当前摘录文本设为标题，保留原摘录；必须提供完全匹配的 `expected_excerpt_text`。
+- `preview_reorganization` / `apply_reorganization`：每次最多移动 20 张卡片；`parent_note_id: null` 表示移到根层。先预览并与用户核对，再用预览返回的 `snapshot_id` 和 `plan_id` 写回。拒绝跨学习集、循环关系和预览后的变化；写回后核对父子关系。原生 Summary 节点的创建 API 尚未确认，这两个工具只修改普通卡片层级。
 - PDF 问答由 Codex 使用本地 PDF 阅读能力完成，桥接层不调用模型。
 - 原生页码字段名为 native_start_page/native_end_page，索引基准待实机验证。
 - 所有层均无自动重试；Host 原生调用超时为 15 秒，MCP HTTP 超时为 20 秒。超时结果区分 not_started 与 unknown。
@@ -92,4 +101,4 @@ mcp/test/                 新链路与插件边界测试
 scripts/                  打包、校验、监督进程、真实链路 smoke
 ```
 
-旧 Agent、聊天面板和持久化模块保留供审计/回退参考，不在默认运行路径。除 `get_current_pdf` 外的 Stage 2 功能和写入工具尚未启用。
+旧 Agent、聊天面板和持久化模块保留供审计/回退参考，不在默认运行路径。新工具已通过模拟 MarginNote 对象的测试；真实 MarginNote 写入、Undo、卡片顺序和大型学习集性能仍需在可丢弃学习集中验收。安装新插件包并重启 Host 后才能使用新工具。

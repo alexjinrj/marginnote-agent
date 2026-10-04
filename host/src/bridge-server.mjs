@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { MarginNoteBridge } from './marginnote/bridge.mjs';
 import { BridgeError, errorData } from '../../mcp/src/errors.mjs';
-import { validate, nativeArguments, normalize } from '../../mcp/src/tools.mjs';
+import { tools, validate, nativeArguments, normalize } from '../../mcp/src/tools.mjs';
 import { SERVICE, PROTOCOL } from '../../mcp/src/config.mjs';
 import { isMarginNoteRunning } from '../../scripts/marginnote-host-supervisor.mjs';
 
@@ -24,7 +24,7 @@ async function read(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString()); }
   catch { throw new BridgeError('INVALID_ARGUMENT', 'Invalid JSON'); }
 }
-export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning = isMarginNoteRunning } = {}) {
+export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning = isMarginNoteRunning, writesEnabled = process.env.MN_ENABLE_WRITES === '1' } = {}) {
   const bridge = new MarginNoteBridge({ timeoutMs, offlineAfterMs: 5000 });
   const server = http.createServer(async (req, res) => {
     try {
@@ -35,7 +35,7 @@ export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning
       }
       const url = new URL(req.url, `http://${authority}`);
       if (req.method === 'GET' && url.pathname === '/health') {
-        send(res, 200, { service: SERVICE, protocol: PROTOCOL, version: '0.5.0', online: bridge.status().online });
+        send(res, 200, { service: SERVICE, protocol: PROTOCOL, version: '0.6.0', online: bridge.status().online, writes_enabled: writesEnabled });
         return;
       }
       if (req.method === 'GET' && url.pathname === '/api/marginnote/next') {
@@ -66,6 +66,7 @@ export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning
       if (req.method === 'POST' && url.pathname === '/api/bridge/call') {
         const body = await read(req);
         const args = validate(body?.tool, body?.arguments ?? {});
+        if (tools[body.tool].writes && !writesEnabled) throw new BridgeError('WRITE_DISABLED', 'Start Host with MN_ENABLE_WRITES=1 to enable card writes', 'not_started');
         if (!bridge.status().online && bridge.pending.size === 0) {
           let running;
           try { running = checkRunning(); } catch { running = undefined; }
