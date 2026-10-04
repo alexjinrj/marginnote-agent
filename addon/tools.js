@@ -263,7 +263,13 @@ var MNAgentTools = (function () {
     try {
       var method = target[methodName];
       if (typeof method !== "function") return { supported: false, text: "" };
-      return { supported: true, text: stringValue(method.call(target, pageIndex)) };
+      var content = method.call(target, pageIndex);
+      if (typeof content === "string") return { supported: true, text: content };
+      var lines = arrayValue(content);
+      if (Array.isArray(content) || (content && typeof content.count === "function")) {
+        return { supported: true, text: lines.map(function (part) { return stringValue(part); }).join("\n") };
+      }
+      return { supported: true, text: stringValue(content) };
     } catch (error) {
       return { supported: false, text: "" };
     }
@@ -280,28 +286,74 @@ var MNAgentTools = (function () {
         }
       } catch (error) {}
     }
+    var pageNo = pageIndex + 1;
+    try {
+      if (documentController && typeof documentController.pageNoFromIndex === "function") {
+        pageNo = documentController.pageNoFromIndex(pageIndex);
+      }
+    } catch (error) {}
     var candidates = [
-      [document, "textContentsForPageNo2"],
-      [document, "textContentsForPageNo"],
-      [document, "textForPageNo"],
-      [documentController, "textContentsForPageNo2"],
-      [documentController, "textContentsForPageNo"],
-      [documentController, "textForPageNo"],
+      [document, "textContentsForPageNo", pageNo],
+      [document, "textContentsForPageNo2", pageNo],
+      [document, "textForPageNo", pageNo],
+      [documentController, "textContentsForPageNo", pageNo],
+      [documentController, "textContentsForPageNo2", pageNo],
+      [documentController, "textForPageNo", pageNo],
     ];
     for (var index = 0; index < candidates.length; index += 1) {
-      var result = invokePageText(candidates[index][0], candidates[index][1], pageIndex);
+      var result = invokePageText(candidates[index][0], candidates[index][1], candidates[index][2]);
       if (result.supported) return result;
     }
     return { supported: false, text: "" };
   }
 
   function currentPageIndex(documentController) {
-    var names = ["currentPage", "pageNo", "pageIndex"];
+    var names = ["currPageIndex", "currentPage", "pageIndex"];
     for (var index = 0; index < names.length; index += 1) {
       var value = numberValue(propertyValue(documentController, names[index]));
       if (value !== null && value >= 0) return Math.floor(value);
     }
     return 0;
+  }
+
+  function getCurrentPdf(addon) {
+    var study = studyController(addon);
+    if (!study) {
+      var noStudy = new Error("No active study window");
+      noStudy.code = "NO_ACTIVE_CONTEXT";
+      throw noStudy;
+    }
+    var readerController = study.readerController;
+    var documentController = readerController && readerController.currentDocumentController;
+    var document = documentController && documentController.document;
+    if (!documentController || !document) {
+      var noPdf = new Error("No active PDF document");
+      noPdf.code = "NO_ACTIVE_CONTEXT";
+      throw noPdf;
+    }
+    var filePath = stringValue(propertyValue(document, "fullPathFileName"));
+    if (!filePath || (filePath.charAt(0) !== "/" && filePath.indexOf("file://") !== 0)) {
+      var fallbackPath = stringValue(propertyValue(document, "pathFile"));
+      if (fallbackPath) filePath = fallbackPath;
+    }
+    if (!filePath) {
+      var missingPath = new Error("Current PDF file path is unavailable");
+      missingPath.code = "PDF_PATH_UNAVAILABLE";
+      throw missingPath;
+    }
+    var pageIndex = numberValue(propertyValue(documentController, "currPageIndex"));
+    if (pageIndex === null || pageIndex < 0 || Math.floor(pageIndex) !== pageIndex) {
+      var missingPage = new Error("Current PDF page index is unavailable");
+      missingPage.code = "PDF_PAGE_UNAVAILABLE";
+      throw missingPage;
+    }
+    return {
+      docMd5: stringValue(propertyValue(document, "docMd5")),
+      title: stringValue(propertyValue(document, "docTitle")),
+      filePath: filePath,
+      pageIndex: pageIndex,
+      pageCount: numberValue(propertyValue(document, "pageCount")),
+    };
   }
 
   function readPdf(addon, args) {
@@ -311,6 +363,12 @@ var MNAgentTools = (function () {
     var documentController = readerController && readerController.currentDocumentController;
     var document = documentController && documentController.document;
     if (!documentController || !document) throw new Error("No active PDF document");
+    var docMd5 = stringValue(document.docMd5);
+    if (args.documentId && docMd5 !== args.documentId) {
+      var mismatch = new Error("Open PDF does not match document_id");
+      mismatch.code = "INVALID_ARGUMENT";
+      throw mismatch;
+    }
 
     var pageCount = numberValue(propertyValue(document, "pageCount"));
     var currentIndex = currentPageIndex(documentController);
@@ -318,11 +376,11 @@ var MNAgentTools = (function () {
     var endPage = Math.floor(Number(args.endPage || startPage));
     var startChar = Math.max(0, Math.floor(Number(args.startChar || 0)));
     var maxChars = Math.max(1000, Math.min(Number(args.maxChars || 20000), 50000));
-    if (startPage < 1 || endPage < startPage) throw new Error("Invalid PDF page range");
+    if (startPage < 1 || endPage < startPage || endPage > startPage + 19) throw new Error("Invalid PDF page range");
     if (pageCount !== null && startPage > pageCount) throw new Error("PDF startPage exceeds pageCount");
     if (pageCount !== null) endPage = Math.min(endPage, pageCount);
 
-    var lastPage = Math.min(endPage, startPage + 19);
+    var lastPage = endPage;
     var pages = [];
     var remaining = maxChars;
     var nextCursor = null;
@@ -338,6 +396,7 @@ var MNAgentTools = (function () {
         startChar: offset,
         text: available.slice(0, length),
         complete: length === available.length,
+        textAvailable: extracted.supported && extracted.text.length > 0,
       });
       remaining -= length;
       if (length < available.length) {
@@ -355,7 +414,7 @@ var MNAgentTools = (function () {
     return {
       available: true,
       document: {
-        docMd5: stringValue(document.docMd5),
+        docMd5: docMd5,
         title: stringValue(document.docTitle),
         pageCount: pageCount,
         currentPage: currentIndex + 1,
@@ -489,6 +548,8 @@ var MNAgentTools = (function () {
         return getSelection(addon, args);
       case "read_pdf":
         return readPdf(addon, args);
+      case "get_current_pdf":
+        return getCurrentPdf(addon);
       case "list_notebooks":
         return listNotebooks(args);
       case "search_notes":

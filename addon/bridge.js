@@ -2,6 +2,7 @@ var MNAgentBridge = {
   addon: null,
   generation: 0,
   busy: false,
+  sceneCount: 1,
 
   recordStage: function (stage, detail) {
     try {
@@ -55,7 +56,9 @@ var MNAgentBridge = {
       encodeURIComponent(MN_AGENT_CLIENT_ID) +
       "&version=" +
       encodeURIComponent(MN_AGENT_ADDON_VERSION);
+    var generation = this.generation;
     MNAgentHTTP.get(path, function (error, payload) {
+      if (generation !== bridge.generation) return;
       if (error) {
         bridge.recordStage("poll-error", error.message || error);
         bridge.busy = false;
@@ -69,24 +72,37 @@ var MNAgentBridge = {
 
       bridge.recordStage("executing", request.tool);
       try {
+        if (bridge.sceneCount > 1) {
+          var ambiguous = new Error("Multiple study windows are connected");
+          ambiguous.code = "AMBIGUOUS_CONTEXT";
+          throw ambiguous;
+        }
+        if (["get_context", "search_notes", "get_note", "get_current_pdf"].indexOf(request.tool) < 0) {
+          var unsupported = new Error("Tool is not enabled in the read-only PoC");
+          unsupported.code = "INVALID_ARGUMENT";
+          throw unsupported;
+        }
         var result = MNAgentTools.execute(bridge.addon, request.tool, request.arguments || {});
+        if (request.tool === "get_context") result.windowId = bridge.addon.mnBridgeWindowId || null;
         bridge.recordStage("executed", request.tool);
         bridge.postResult(request.requestId, true, result, null);
       } catch (toolError) {
-        bridge.recordStage("tool-error", toolError.message || toolError);
-        bridge.postResult(request.requestId, false, null, String(toolError.message || toolError));
+        bridge.recordStage("tool-error", toolError.code || "RPC_FAILURE");
+        bridge.postResult(request.requestId, false, null, String(toolError.message || toolError), toolError.code);
       }
     });
   },
 
-  postResult: function (requestId, success, result, error) {
+  postResult: function (requestId, success, result, error, errorCode) {
     var bridge = this;
+    var generation = this.generation;
     bridge.recordStage("posting-result", success ? "success" : "failure");
     try {
       MNAgentHTTP.post(
         "/api/marginnote/result",
-        { requestId: requestId, success: success, result: result, error: error },
+        { requestId: requestId, success: success, result: result, error: error, errorCode: errorCode || null },
         function (postError) {
+          if (generation !== bridge.generation) return;
           bridge.busy = false;
           if (postError) {
             var defaults = NSUserDefaults.standardUserDefaults();

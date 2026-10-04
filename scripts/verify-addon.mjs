@@ -15,7 +15,6 @@ const required = [
   "network.js",
   "tools.js",
   "bridge.js",
-  "AgentPanelController.js",
   "icon.png",
 ];
 
@@ -26,3 +25,7 @@ if ([...entries].some((entry) => entry.startsWith("addon/"))) {
   throw new Error("Addon files must be stored at the archive root");
 }
 console.log(`Verified ${archive} (${entries.size} entries)`);
+
+if (entries.has("AgentPanelController.js")) throw new Error("Bridge archive includes chat UI");
+const { stdout: main } = await execFileAsync("/usr/bin/unzip", ["-p", archive, "main.js"]);
+if (main.includes("AgentPanelController") || !main.includes("sceneCount")) throw new Error("Wrong addon entry point");

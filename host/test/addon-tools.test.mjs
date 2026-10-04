@@ -60,9 +60,9 @@ test("addon reads current PDF pages and returns a continuation cursor", async ()
       docMd5: "doc-1",
       docTitle: "测试 PDF",
       pageCount: 3,
-      textContentsForPageNo2: (page) => (page === 0 ? pageText : `page-${page + 1}`),
+      textContentsForPageNo: (page) => (page === 1 ? [pageText] : [`page-${page}`]),
     },
-    documentController: { currentPage: 1, selectionText: "", getCurrentPageText: () => "page-2" },
+    documentController: { currPageIndex: 1, pageNoFromIndex: index => index + 1, selectionText: "" },
     selectedViews: [],
   });
 
@@ -72,8 +72,38 @@ test("addon reads current PDF pages and returns a continuation cursor", async ()
     maxChars: 1000,
   });
   assert.equal(result.pages[0].page, 1);
+  assert.equal(result.document.currentPage, 2);
   assert.equal(result.pages[0].text.length, 1000);
   assert.equal(result.nextCursor.page, 1);
   assert.equal(result.nextCursor.charOffset, 1000);
   assert.equal(result.truncated, true);
+  assert.equal(result.pages[0].textAvailable, true);
+  const continued = tools.execute({ window: {} }, "read_pdf", { startPage: result.nextCursor.page, startChar: result.nextCursor.charOffset, endPage: 2, maxChars: 1000 });
+  assert.equal(continued.pages[0].text.length, 500);
+  assert.equal(continued.pages[1].page, 2);
+  assert.equal(continued.pages[1].text, "page-2");
+  assert.throws(() => tools.execute({ window: {} }, "read_pdf", { documentId: "other" }), /does not match/);
+});
+
+test("addon returns only the open PDF location and current page index", async () => {
+  const tools = await loadTools({
+    document: { docMd5: "doc-1", docTitle: "测试 PDF", fullPathFileName: "/tmp/测试 PDF.pdf", pageCount: 3 },
+    documentController: { currPageIndex: 2 },
+    selectedViews: [],
+  });
+  const result = tools.execute({ window: {} }, "get_current_pdf", {});
+  assert.equal(result.filePath, "/tmp/测试 PDF.pdf");
+  assert.equal(result.pageIndex, 2);
+  assert.equal(result.pageCount, 3);
+  assert.equal(result.pages, undefined);
+  assert.equal(result.text, undefined);
+});
+
+test("PDF locator reports an unavailable path or page without guessing", async () => {
+  const tools = await loadTools({
+    document: { docMd5: "doc-1", docTitle: "PDF", pageCount: 3 },
+    documentController: { currPageIndex: 0 },
+    selectedViews: [],
+  });
+  assert.throws(() => tools.execute({ window: {} }, "get_current_pdf", {}), /path is unavailable/);
 });

@@ -5,3 +5,5 @@ addon/icon.png
 *.log
 .DS_Store
 .env
+node_modules/
+.pnpm-store/

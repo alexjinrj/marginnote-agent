@@ -40,7 +40,7 @@ export function isLocalPortInUse(port, host = "127.0.0.1") {
 }
 
 function spawnHost(projectDir) {
-  return spawn(process.execPath, [path.join(projectDir, "host/src/main.mjs")], {
+  return spawn(process.execPath, [path.join(projectDir, "host/src/bridge-main.mjs")], {
     cwd: projectDir,
     env: process.env,
     stdio: "inherit",
@@ -54,7 +54,7 @@ function isChildRunning(child) {
 export class MarginNoteHostSupervisor {
   constructor({
     projectDir = defaultProjectDir,
-    port = Number(process.env.MN_AGENT_PORT || 42117),
+    port = Number(process.env.MN_BRIDGE_PORT || 42117),
     pollIntervalMs = 1000,
     restartDelayMs = 2000,
     stopGraceMs = 2000,

@@ -1,18 +1,25 @@
 {
   "name": "marginnote-agent",
-  "version": "0.2.4",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "A macOS MarginNote agent host with MCP and native MarginNote tools.",
+  "description": "Local read-only MarginNote MCP bridge for Codex",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "node host/src/main.mjs",
+    "start": "node host/src/bridge-main.mjs",
     "install:launch-agent": "node scripts/install-launch-agent.mjs",
-    "test": "node --test host/test/*.test.mjs",
+    "test": "node --test host/test/*.test.mjs mcp/test/*.test.mjs",
     "build:addon": "node scripts/build-addon.mjs",
     "verify:addon": "node scripts/verify-addon.mjs",
-    "verify": "npm test && npm run build:addon && npm run verify:addon"
+    "verify": "node --test host/test/*.test.mjs mcp/test/*.test.mjs && node scripts/build-addon.mjs && node scripts/verify-addon.mjs",
+    "mcp": "node mcp/src/index.mjs",
+    "smoke": "node scripts/smoke-bridge.mjs",
+    "smoke:pdf": "node scripts/smoke-current-pdf.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "zod": "3.25.76"
   }
 }
