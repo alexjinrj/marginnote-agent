@@ -57,14 +57,17 @@ export function createLaunchAgentPlist({
   stdoutPath,
   stderrPath,
   pathEnvironment,
+  enableWrites = false,
 }) {
-  const environment = pathEnvironment
+  const environment = pathEnvironment || enableWrites
     ? `
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key>
+${pathEnvironment ? `    <key>PATH</key>
     <string>${escapeXml(pathEnvironment)}</string>
-  </dict>`
+` : ""}${enableWrites ? `    <key>MN_ENABLE_WRITES</key>
+    <string>1</string>
+` : ""}  </dict>`
     : "";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -133,6 +136,7 @@ async function isLoaded(target) {
 }
 
 async function main() {
+  const enableWrites = process.argv.includes("--enable-writes");
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const projectDir = path.resolve(scriptDir, "..");
   const launchAgentsDir = path.join(os.homedir(), "Library", "LaunchAgents");
@@ -154,6 +158,7 @@ async function main() {
       stdoutPath: path.join(logsDir, "launchd.out.log"),
       stderrPath: path.join(logsDir, "launchd.err.log"),
       pathEnvironment: launchAgentPath(process.env.PATH, nodePath),
+      enableWrites,
     }),
     { mode: 0o644 },
   );
@@ -167,6 +172,7 @@ async function main() {
 
   console.log(`Installed ${LAUNCH_AGENT_LABEL}.`);
   console.log(`Host now follows MarginNote 4: ${plistPath}`);
+  console.log(`Card writes: ${enableWrites ? "enabled" : "disabled"}.`);
 }
 
 const scriptPath = fileURLToPath(import.meta.url);

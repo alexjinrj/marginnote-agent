@@ -36,7 +36,17 @@ curl http://127.0.0.1:42117/health
 
 返回 `service: marginnote-mcp-bridge`、`protocol: 1`；`online: true` 表示插件正在轮询，不代表 PDF 文件路径已经验收。
 
-可选：`pnpm run install:launch-agent` 安装用户 launchd 项，随 MarginNote 自动启停共享 Host。默认不自动安装。已有旧启动项须先核对其项目路径；不能通过杀掉未知端口进程解决冲突。回退时退出新 Host，恢复先前 Git 版本及其对应插件包。
+### 让 Host 随 MarginNote 自动启停
+
+运行一次安装命令，此后打开 MarginNote 4 会自动启动 Host，退出 MarginNote 会自动关闭它，不必再 `source` 脚本。默认保持写入关闭：
+
+```sh
+node scripts/install-launch-agent.mjs
+```
+
+在可丢弃学习集完成写入验收后，可用 `node scripts/install-launch-agent.mjs --enable-writes` 重装后台项以持续开放写入。Terminal 中临时设置的 `MN_ENABLE_WRITES` 不会改变已安装的后台项。查看状态可运行 `curl http://127.0.0.1:42117/health`，其中 `writes_enabled` 显示写入开关。
+
+安装器不会停止占用端口的手动 Host。如果手动 Host 正在运行，先在原 Terminal 停止它；后台项随后会接管。已有旧启动项须先核对其项目路径；不能通过杀掉未知端口进程解决冲突。回退时退出新 Host，恢复先前 Git 版本及其对应插件包。
 
 ## Codex / Claudian 配置
 

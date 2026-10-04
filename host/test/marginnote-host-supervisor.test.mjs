@@ -5,6 +5,7 @@ import {
   isMarginNoteProcess,
   MarginNoteHostSupervisor,
 } from "../../scripts/marginnote-host-supervisor.mjs";
+import { createLaunchAgentPlist } from "../../scripts/install-launch-agent.mjs";
 
 class FakeChild extends EventEmitter {
   constructor() {
@@ -25,6 +26,12 @@ class FakeChild extends EventEmitter {
 }
 
 const logger = { log() {}, warn() {}, error() {} };
+
+test("launch agent keeps writes off unless explicitly enabled", () => {
+  const options = { nodePath: "/tmp/node", supervisorPath: "/tmp/supervisor.mjs", projectDir: "/tmp/project", stdoutPath: "/tmp/out", stderrPath: "/tmp/err", pathEnvironment: "/usr/bin" };
+  assert.equal(createLaunchAgentPlist(options).includes("MN_ENABLE_WRITES"), false);
+  assert.match(createLaunchAgentPlist({ ...options, enableWrites: true }), /<key>MN_ENABLE_WRITES<\/key>\s*<string>1<\/string>/);
+});
 
 test("supervisor identifies installed MarginNote 4 executables", () => {
   assert.equal(
