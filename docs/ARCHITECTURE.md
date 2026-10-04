@@ -32,6 +32,8 @@ Claudian / Codex --stdio--> mcp/src/index.mjs (one per client)
 
 The RPC Host owns the queue and listener. Clients verify service/protocol identity on each call; they do not spawn or terminate the shared Host. Start Host with npm start or the optional supervisor. Host shutdown rejects pending calls; MCP EOF only closes its own process. Binding conflicts fail clearly. Reconnection means the next call can succeed after recovery, without retrying a previous operation.
 
+The installed LaunchAgent runs `scripts/marginnote-host-supervisor.mjs`. It follows the MarginNote process and owns only the Host child it starts. Its control page listens on `127.0.0.1:42118`; the MCP Host remains on `127.0.0.1:42117`. The page shows live Host/addon state, persists pause and write settings to ignored `.local/host-control.json`, restarts its own Host, and can rebuild/verify the addon archive. Write settings become `MN_ENABLE_WRITES` in the spawned Host environment. Control actions require a page token and same-origin request; this protects against web-page requests, not other local processes. A manually started Host occupying 42117 is never terminated by the supervisor.
+
 Reuse native tool implementations and the queue class, with redelivery removed and typed errors added. New bridge HTTP entry point imports no LLM, prompt, AgentEngine, session store, chat server or MCP orchestration. Existing legacy modules and tests stay as reference; default startup, supervisor and addon archive use bridge-only paths. Official MCP SDK handles stdio framing, initialization, discovery and protocol validation. ESM .mjs avoids adding a compiler.
 
 ## Contracts and limits

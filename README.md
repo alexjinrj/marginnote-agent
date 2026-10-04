@@ -44,7 +44,9 @@ curl http://127.0.0.1:42117/health
 node scripts/install-launch-agent.mjs
 ```
 
-在可丢弃学习集完成写入验收后，可用 `node scripts/install-launch-agent.mjs --enable-writes` 重装后台项以持续开放写入。Terminal 中临时设置的 `MN_ENABLE_WRITES` 不会改变已安装的后台项。查看状态可运行 `curl http://127.0.0.1:42117/health`，其中 `writes_enabled` 显示写入开关。
+安装后打开 [Host 控制台](http://127.0.0.1:42118/)（可加入浏览器书签）。这里能查看 Host/插件状态、暂停或恢复自动运行、重启 Host，以及持久开关卡片写入；不需要 Terminal。Terminal 中临时设置的 `MN_ENABLE_WRITES` 不会改变已安装后台项的状态。设置保存在本项目的 `.local/host-control.json`，不会被 Git 提交。
+
+开发时修改 `host/src` 后，在控制台点「重启 Host」即可加载新代码；修改 `mcp/src` 后，还要新建 Codex 会话；修改 `addon/` 后，可在控制台点「构建插件包」，再安装新版插件。控制台只关闭自己启动的 Host，不会接管占用端口的手动 Host。
 
 安装器不会停止占用端口的手动 Host。如果手动 Host 正在运行，先在原 Terminal 停止它；后台项随后会接管。已有旧启动项须先核对其项目路径；不能通过杀掉未知端口进程解决冲突。回退时退出新 Host，恢复先前 Git 版本及其对应插件包。
 

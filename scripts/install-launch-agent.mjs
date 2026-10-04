@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, chmod, mkdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -146,6 +146,18 @@ async function main() {
   const domain = `gui/${process.getuid()}`;
   const target = `${domain}/${LAUNCH_AGENT_LABEL}`;
   const nodePath = await preferredNodePath();
+  const settingsPath = path.join(projectDir, ".local", "host-control.json");
+  let effectiveWrites = enableWrites;
+
+  if (enableWrites) {
+    let previous = {};
+    try { previous = JSON.parse(await readFile(settingsPath, "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    await mkdir(path.dirname(settingsPath), { recursive: true });
+    await writeFile(settingsPath, JSON.stringify({ paused: previous.paused === true, writesEnabled: true }), { mode: 0o600 });
+  } else {
+    try { effectiveWrites = JSON.parse(await readFile(settingsPath, "utf8")).writesEnabled === true; }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+  }
 
   await mkdir(launchAgentsDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
@@ -172,7 +184,7 @@ async function main() {
 
   console.log(`Installed ${LAUNCH_AGENT_LABEL}.`);
   console.log(`Host now follows MarginNote 4: ${plistPath}`);
-  console.log(`Card writes: ${enableWrites ? "enabled" : "disabled"}.`);
+  console.log(`Card writes: ${effectiveWrites ? "enabled" : "disabled"}.`);
 }
 
 const scriptPath = fileURLToPath(import.meta.url);

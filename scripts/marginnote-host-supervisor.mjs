@@ -2,6 +2,8 @@ import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { createControlServer } from "./host-control.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultProjectDir = path.resolve(path.dirname(scriptPath), "..");
@@ -39,10 +41,10 @@ export function isLocalPortInUse(port, host = "127.0.0.1") {
   });
 }
 
-function spawnHost(projectDir) {
+function spawnHost(projectDir, writesEnabled) {
   return spawn(process.execPath, [path.join(projectDir, "host/src/bridge-main.mjs")], {
     cwd: projectDir,
-    env: process.env,
+    env: { ...process.env, MN_ENABLE_WRITES: writesEnabled ? "1" : "0" },
     stdio: "inherit",
   });
 }
@@ -63,6 +65,8 @@ export class MarginNoteHostSupervisor {
     isPortInUse: checkPortInUse = isLocalPortInUse,
     spawnHost: launchHost = spawnHost,
     logger = console,
+    writesEnabled = false,
+    paused = false,
   } = {}) {
     this.projectDir = projectDir;
     this.port = port;
@@ -81,6 +85,9 @@ export class MarginNoteHostSupervisor {
     this.portConflictReported = false;
     this.stoppingHost = null;
     this.marginNoteMissingSince = null;
+    this.writesEnabled = writesEnabled;
+    this.paused = paused;
+    this.marginNoteRunning = false;
   }
 
   start() {
@@ -94,6 +101,11 @@ export class MarginNoteHostSupervisor {
     this.reconciling = true;
     try {
       const marginNoteRunning = await this.checkMarginNoteRunning();
+      this.marginNoteRunning = marginNoteRunning;
+      if (this.paused) {
+        this.stopHost();
+        return;
+      }
       if (!marginNoteRunning) {
         if (this.marginNoteMissingSince === null) this.marginNoteMissingSince = this.now();
         if (this.now() - this.marginNoteMissingSince < this.stopGraceMs) return;
@@ -125,7 +137,7 @@ export class MarginNoteHostSupervisor {
   }
 
   startHost() {
-    const child = this.launchHost(this.projectDir);
+    const child = this.launchHost(this.projectDir, this.writesEnabled);
     this.hostProcess = child;
     this.stoppingHost = null;
     this.nextStartAt = this.now() + this.restartDelayMs;
@@ -161,6 +173,22 @@ export class MarginNoteHostSupervisor {
     }
   }
 
+  restartHost() {
+    this.nextStartAt = 0;
+    this.stopHost();
+    if (!isChildRunning(this.hostProcess)) void this.reconcile();
+  }
+
+  status() {
+    return {
+      managed_host_running: isChildRunning(this.hostProcess),
+      margin_note_running: this.marginNoteRunning,
+      paused: this.paused,
+      writes_enabled_setting: this.writesEnabled,
+      port: this.port,
+    };
+  }
+
   async stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
@@ -169,19 +197,44 @@ export class MarginNoteHostSupervisor {
 }
 
 async function main() {
-  const supervisor = new MarginNoteHostSupervisor();
+  const projectDir = defaultProjectDir;
+  const settingsPath = path.join(projectDir, ".local", "host-control.json");
+  let settings = { paused: false, writesEnabled: process.env.MN_ENABLE_WRITES === "1" };
+  try {
+    const stored = JSON.parse(await readFile(settingsPath, "utf8"));
+    settings = { paused: stored.paused === true, writesEnabled: stored.writesEnabled === true };
+  } catch (error) {
+    if (error.code !== "ENOENT") console.error("Ignoring invalid Host control settings:", error.message);
+  }
+  const supervisor = new MarginNoteHostSupervisor({ ...settings });
+  const saveSettings = async () => {
+    await mkdir(path.dirname(settingsPath), { recursive: true });
+    const temp = settingsPath + ".tmp";
+    await writeFile(temp, JSON.stringify({ paused: supervisor.paused, writesEnabled: supervisor.writesEnabled }), { mode: 0o600 });
+    await rename(temp, settingsPath);
+  };
+  const control = createControlServer({ supervisor, saveSettings });
+  let controlReady = false;
+  try {
+    await control.listen();
+    controlReady = true;
+  } catch (error) {
+    console.error("Host control page unavailable:", error.message);
+  }
   let closing = false;
   const shutdown = async (signal) => {
     if (closing) return;
     closing = true;
     console.log(`Stopping MarginNote Agent supervisor (${signal})...`);
     await supervisor.stop();
+    if (controlReady) await control.close();
     process.exit(0);
   };
 
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   supervisor.start();
+  if (controlReady) console.error("Host controls: http://127.0.0.1:42118");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {

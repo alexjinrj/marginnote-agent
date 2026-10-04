@@ -51,9 +51,11 @@ test("supervisor starts with MarginNote and stops only its own Host child", asyn
   const child = new FakeChild();
   const supervisor = new MarginNoteHostSupervisor({
     projectDir: "/tmp/marginnote-agent",
+    writesEnabled: true,
     isMarginNoteRunning: () => marginNoteRunning,
     isPortInUse: () => false,
-    spawnHost: () => {
+    spawnHost: (_projectDir, writesEnabled) => {
+      assert.equal(writesEnabled, true);
       spawnCount += 1;
       return child;
     },

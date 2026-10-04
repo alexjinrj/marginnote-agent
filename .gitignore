@@ -7,3 +7,4 @@ addon/icon.png
 .env
 node_modules/
 .pnpm-store/
+.local/
