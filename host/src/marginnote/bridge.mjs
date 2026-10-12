@@ -90,7 +90,7 @@ export class MarginNoteBridge {
     this.queue = this.queue.filter((item) => item.requestId !== requestId);
     if (success) pending.resolve(result);
     else {
-      const code = ["NOTE_NOT_FOUND", "NOTEBOOK_NOT_FOUND", "STALE_SNAPSHOT", "NO_ACTIVE_CONTEXT", "AMBIGUOUS_CONTEXT", "INVALID_ARGUMENT", "PDF_PATH_UNAVAILABLE", "PDF_PAGE_UNAVAILABLE"].includes(errorCode) ? errorCode : (String(error).startsWith("Note not found:") ? "NOTE_NOT_FOUND" : "RPC_FAILURE");
+      const code = ["NOTE_NOT_FOUND", "NOTEBOOK_NOT_FOUND", "STALE_SNAPSHOT", "NO_ACTIVE_CONTEXT", "AMBIGUOUS_CONTEXT", "INVALID_ARGUMENT", "PDF_PATH_UNAVAILABLE", "PDF_PAGE_UNAVAILABLE", "MEDIA_UNAVAILABLE"].includes(errorCode) ? errorCode : (String(error).startsWith("Note not found:") ? "NOTE_NOT_FOUND" : "RPC_FAILURE");
       pending.reject(new BridgeError(code, code === "RPC_FAILURE" ? "Native MarginNote call failed" : code));
     }
     return true;

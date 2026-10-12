@@ -1,100 +1,76 @@
 import { z } from 'zod';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { BridgeError } from './errors.mjs';
+import { tools as rpc } from './rpc-tools.mjs';
 
 const id = z.string().trim().min(1).max(512);
-const page = z.object({ offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(100).default(50) }).strict();
-const move = z.object({ note_id: id, parent_note_id: id.nullable(), before_note_id: id.optional() }).strict();
-const moves = z.array(move).min(1).max(20);
-export const tools = {
-  get_context: { description: 'Read the single connected MarginNote study window, notebook, document and focused note. Multiple windows return AMBIGUOUS_CONTEXT.', schema: z.object({}).strict() },
-  search_notes: { description: 'Search notes across all notebooks, or one explicit notebook_id. Results have stable note IDs; results at the limit may be incomplete.', schema: z.object({ query: z.string().trim().min(1).max(2000), notebook_id: id.optional(), limit: z.number().int().min(1).max(100).default(30) }).strict() },
-  get_note: { description: 'Read a MarginNote note by the stable note_id returned from context or search. Large text and child lists are bounded and flagged.', schema: z.object({ note_id: id }).strict() },
-  get_current_pdf: { description: 'Get the local file path and current page index of the PDF open in MarginNote. No PDF contents are returned. Open file_path locally to read or render page_number (1-based); page_index is 0-based. Call again after switching documents or pages.', schema: z.object({}).strict() },
-  list_notebooks: { description: 'List MarginNote study sets (not PDFs) with offset pagination. Iterate until next_offset is null to cover the library.', schema: page },
-  get_library_page: { description: 'Read a notebook card tree in bounded pages, including stable IDs, parent IDs, order, document links and text. Pass snapshot_id on following pages; restart if STALE_SNAPSHOT. Use get_note for truncated content.', schema: z.object({ notebook_id: id, offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(50).default(30), snapshot_id: id.optional() }).strict() },
-  create_card: { description: 'Create one card in an explicit MarginNote notebook, optionally under a parent card, with an optional Markdown comment. Writes to MarginNote; after an unknown timeout, inspect the notebook before retrying.', schema: z.object({ notebook_id: id, title: z.string().trim().min(1).max(500), parent_note_id: id.optional(), body: z.string().max(10000).optional() }).strict(), writes: true },
-  append_comment: { description: 'Append a text or Markdown note to an existing card. This is a write and must not be retried blindly after an unknown timeout.', schema: z.object({ note_id: id, text: z.string().min(1).max(10000), format: z.enum(['text', 'markdown']).default('markdown') }).strict(), writes: true },
-  create_framework: { description: 'Create up to 30 ordered mind-map cards from a conversation-derived outline in an explicit notebook. parent_key refers to an earlier node; body becomes a Markdown comment. This writes to MarginNote and cannot safely be retried after an unknown timeout; inspect the notebook first.', schema: z.object({ notebook_id: id, parent_note_id: id.optional(), nodes: z.array(z.object({ key: id, parent_key: id.optional(), title: z.string().trim().min(1).max(500), body: z.string().max(10000).optional() }).strict()).min(1).max(30) }).strict(), writes: true },
-  promote_excerpt_to_title: { description: 'Set a card title from its current excerpt text while preserving the excerpt. Requires exact expected_excerpt_text to prevent stale edits. Writes to MarginNote.', schema: z.object({ note_id: id, expected_excerpt_text: z.string().trim().min(1).max(20000) }).strict(), writes: true },
-  preview_reorganization: { description: 'Validate and preview up to 20 card moves within one notebook. parent_note_id=null moves a card to the root. Returns snapshot_id and plan_id. This does not write.', schema: z.object({ notebook_id: id, moves }).strict() },
-  apply_reorganization: { description: 'Apply exactly the card moves previously previewed and reviewed with the user. Requires preview snapshot_id and plan_id, and rejects changed notebooks. Writes to MarginNote; after an unknown timeout, read cards before retrying.', schema: z.object({ notebook_id: id, expected_snapshot_id: id, expected_plan_id: id, moves }).strict(), writes: true },
+const nullableId = id.nullable();
+const count = z.number().int().nonnegative();
+const comment = z.object({ type: z.string(), text: z.string(), note_id: nullableId.default(null) });
+export const cardSchema = z.object({
+  note_id: id, notebook_id: nullableId, document_id: nullableId,
+  title: z.string(), excerpt: z.string(), content: z.string(), comments: z.array(comment),
+  children: z.array(z.object({ note_id: nullableId, title: z.string() })), parent_note_id: nullableId,
+  native_start_page: z.number().nullable(), native_end_page: z.number().nullable(),
+  media_count: count.nullable().default(null), stroke_count: count.nullable().default(null),
+});
+export const mediaSchema = z.object({
+  source: z.enum(['note', 'sketch', 'focus_image']), requested_note_id: id, media_note_id: nullableId,
+  media_index: count.nullable(), media_hash: z.string().nullable(), media_format: z.string().nullable(),
+  stroke_count: count.nullable(), byte_count: count.nullable(), status: z.enum(['image', 'unrenderable']),
+  reason: z.string().nullable(), image_source: z.string().nullable(), image_mime_type: z.enum(['image/png', 'image/jpeg']).nullable(),
+  image_file_path: z.string().nullable(), image_byte_count: count.nullable(),
+});
+const pdfLocation = {
+  document_id: nullableId, title: z.string(), file_path: z.string(), file_name: z.string(),
+  page_index: count, page_number: count, margin_note_page_no: count.nullable(),
+  mapped_page_no: count.nullable(), page_count: count.nullable(), truncated: z.boolean(),
 };
-export function validate(tool, args) {
-  if (!Object.hasOwn(tools, tool)) throw new BridgeError('INVALID_ARGUMENT', 'Unsupported tool');
-  const result = tools[tool].schema.safeParse(args);
-  if (!result.success) throw new BridgeError('INVALID_ARGUMENT', 'Arguments do not match the tool schema');
-  return result.data;
-}
-export function nativeArguments(tool, args) {
-  if (tool === 'search_notes') return { query: args.query, scope: args.notebook_id ? 'topic' : 'all', ...(args.notebook_id ? { topicId: args.notebook_id } : {}), limit: args.limit };
-  if (tool === 'get_note') return { noteId: args.note_id, includeChildren: false };
-  if (tool === 'get_library_page') return { topicId: args.notebook_id, offset: args.offset, limit: args.limit, ...(args.snapshot_id ? { snapshotId: args.snapshot_id } : {}) };
-  if (tool === 'list_notebooks') return { offset: args.offset, limit: args.limit };
-  if (tool === 'create_card') return { topicId: args.notebook_id, title: args.title, ...(args.parent_note_id ? { parentNoteId: args.parent_note_id } : {}), ...(args.body ? { comment: args.body, commentFormat: 'markdown' } : {}) };
-  if (tool === 'append_comment') return { noteId: args.note_id, text: args.text, format: args.format };
-  if (tool === 'create_framework') return { topicId: args.notebook_id, ...(args.parent_note_id ? { parentNoteId: args.parent_note_id } : {}), nodes: args.nodes.map(n => ({ key: n.key, ...(n.parent_key ? { parentKey: n.parent_key } : {}), title: n.title, ...(n.body ? { body: n.body } : {}) })) };
-  if (tool === 'promote_excerpt_to_title') return { noteId: args.note_id, expectedExcerptText: args.expected_excerpt_text };
-  if (tool === 'preview_reorganization' || tool === 'apply_reorganization') return { topicId: args.notebook_id, ...(args.expected_snapshot_id ? { expectedSnapshotId: args.expected_snapshot_id } : {}), ...(args.expected_plan_id ? { expectedPlanId: args.expected_plan_id } : {}), moves: args.moves.map(m => ({ noteId: m.note_id, parentNoteId: m.parent_note_id, ...(m.before_note_id ? { beforeNoteId: m.before_note_id } : {}) })) };
-  return {};
-}
-export function normalize(tool, value, args) {
-  let truncated = false;
-  const text = (v) => {
-    if (typeof v !== 'string') return '';
-    if (v.length > 20000) truncated = true;
-    return v.slice(0, 20000);
-  };
-  const identifier = (v) => typeof v === 'string' && v.length ? v : null;
-  const list = (v) => {
-    if (!Array.isArray(v)) return [];
-    if (v.length > 100) truncated = true;
-    return v.slice(0, 100);
-  };
-  const note = (v) => v && typeof v === 'object' ? {
-    note_id: identifier(v.noteId), notebook_id: identifier(v.notebookId || v.topicId), document_id: identifier(v.docMd5), title: text(v.title), excerpt: text(v.excerptText || v.text), content: text(v.notesText),
-    comments: list(v.comments).map(c => ({ type: text(c.type), text: text(c.text) })),
-    children: list(v.children).map(c => ({ note_id: identifier(c.noteId), title: text(c.title) })),
-    parent_note_id: identifier(v.parentNoteId), native_start_page: v.startPage ?? null, native_end_page: v.endPage ?? null,
-  } : null;
-  let output;
-  if (tool === 'get_context') {
-    output = { available: value?.available === true, reason: value?.available ? null : 'NO_ACTIVE_CONTEXT', window_id: identifier(value?.windowId), notebook: value?.notebook ? { notebook_id: identifier(value.notebook.topicId), title: text(value.notebook.title) } : null, document: value?.document ? { document_id: identifier(value.document.docMd5), title: text(value.document.title), page_count: value.document.pageCount ?? null } : null, focus_note: note(value?.focusNote), selection_text: text(value?.selectionText) };
-  } else if (tool === 'search_notes') {
-    if (!Array.isArray(value)) throw new BridgeError('RPC_FAILURE', 'Invalid native search response');
-    const results = value.filter(n => n && typeof n.noteId === 'string' && n.noteId);
-    output = { notes: results.slice(0, args.limit).map(note), possibly_truncated: value.length >= args.limit, omitted_without_note_id: value.length - results.length };
-  } else if (tool === 'get_current_pdf') {
-    if (!value || typeof value.filePath !== 'string' || !Number.isInteger(value.pageIndex) || value.pageIndex < 0) throw new BridgeError('RPC_FAILURE', 'Invalid native PDF location');
-    let filePath = value.filePath;
-    if (filePath.startsWith('file://')) {
-      try { filePath = fileURLToPath(filePath); }
-      catch { throw new BridgeError('PDF_PATH_UNAVAILABLE', 'Current PDF file URL is invalid'); }
-    }
-    if (!path.isAbsolute(filePath) || filePath.includes('\0') || filePath.length > 4096) throw new BridgeError('PDF_PATH_UNAVAILABLE', 'Current PDF file path is unavailable');
-    output = { document_id: identifier(value.docMd5), title: text(value.title), file_path: filePath, file_name: path.basename(filePath), page_index: value.pageIndex, page_number: value.pageIndex + 1, page_count: Number.isInteger(value.pageCount) ? value.pageCount : null };
-  } else if (tool === 'list_notebooks') {
-    if (!Array.isArray(value?.notebooks)) throw new BridgeError('RPC_FAILURE', 'Invalid native notebook page');
-    output = { total_count: value.totalCount, next_offset: value.nextOffset, notebooks: value.notebooks.map(n => ({ notebook_id: identifier(n.topicId), title: text(n.title), document_id: identifier(n.mainDocMd5), root_note_count: n.rootNoteCount })) };
-  } else if (tool === 'get_library_page') {
-    if (value?.topicId !== args.notebook_id || !Array.isArray(value.cards)) throw new BridgeError('RPC_FAILURE', 'Invalid native library page');
-    output = { notebook_id: value.topicId, snapshot_id: value.snapshotId, total_count: value.totalCount, next_offset: value.nextOffset, cards: value.cards.map(c => ({ note_id: identifier(c.noteId), parent_note_id: identifier(c.parentNoteId), order: c.order, document_id: identifier(c.docMd5), title: text(c.title), excerpt: text(c.excerptText), content: text(c.notesText), content_truncated: Boolean(c.contentTruncated), comment_count: c.commentCount, comments: list(c.comments).map(x => ({ type: text(x.type), text: text(x.text), truncated: Boolean(x.truncated) })), comments_truncated: Boolean(c.commentsTruncated), summary_link_ids: list(c.summaryLinkIds).map(identifier), summary_links_truncated: Boolean(c.summaryLinksTruncated) })) };
-  } else if (tool === 'create_framework') {
-    if (value?.topicId !== args.notebook_id || !Array.isArray(value.cards)) throw new BridgeError('RPC_FAILURE', 'Invalid native framework result');
-    output = { notebook_id: value.topicId, all_verified: value.allVerified === true, cards: value.cards.map(c => ({ key: c.key, note_id: identifier(c.noteId), parent_note_id: identifier(c.parentNoteId), title: text(c.title), verified: c.verified === true })) };
-  } else if (tool === 'create_card' || tool === 'append_comment') {
-    if (!value?.noteId || (tool === 'append_comment' && value.noteId !== args.note_id)) throw new BridgeError('RPC_FAILURE', 'Invalid native card result');
-    output = { note: note(value) };
-  } else if (tool === 'promote_excerpt_to_title') {
-    if (value?.noteId !== args.note_id) throw new BridgeError('RPC_FAILURE', 'Native title result did not match requested card');
-    output = { note_id: value.noteId, title: text(value.title), excerpt: text(value.excerptText) };
-  } else if (tool === 'preview_reorganization' || tool === 'apply_reorganization') {
-    if (value?.topicId !== args.notebook_id || !Array.isArray(value.moves)) throw new BridgeError('RPC_FAILURE', 'Invalid native reorganization result');
-    output = { notebook_id: value.topicId, ...(tool === 'preview_reorganization' ? { snapshot_id: value.snapshotId, plan_id: value.planId } : { all_verified: value.allVerified === true }), moves: value.moves.map(m => ({ note_id: identifier(m.noteId), from_parent_note_id: identifier(m.fromParentNoteId), to_parent_note_id: identifier(m.toParentNoteId), before_note_id: identifier(m.beforeNoteId), title: text(m.title), ...(tool === 'apply_reorganization' ? { verified: m.verified === true } : {}) })) };
-  } else {
-    if (!value?.noteId || value.noteId !== args.note_id) throw new BridgeError('RPC_FAILURE', 'Native response did not match requested note');
-    output = { note: note(value) };
-  }
-  return { ...output, truncated: truncated || Boolean(value?.truncated) };
-}
+const moveResult = z.object({ note_id: id, from_parent_note_id: nullableId, to_parent_note_id: nullableId, before_note_id: nullableId, title: z.string() });
+
+// Public tasks are distinct from the stable native RPC primitives in rpc-tools.mjs.
+export const tools = {
+  get_workspace: {
+    rpc: 'get_context', description: 'Locate the live MarginNote window, study notebook, PDF and selected card. Use for "what am I viewing/which notebook is open?" Refresh for each live-context question. For card contents call read_card directly; no prior context call is needed. Multiple study windows return AMBIGUOUS_CONTEXT.', schema: z.object({}).strict(),
+    outputSchema: z.object({ available: z.boolean(), reason: z.string().nullable(), window_id: nullableId, notebook: z.object({ notebook_id: nullableId, title: z.string() }).nullable(), document: z.object({ document_id: nullableId, title: z.string(), page_count: count.nullable() }).nullable(), focus_note: cardSchema.nullable(), selection_text: z.string(), truncated: z.boolean() }),
+  },
+  list_notebooks: {
+    rpc: 'list_notebooks', description: 'Browse the MarginNote study-set directory to choose a notebook_id. A notebook is a mind-map study set, not a PDF. Follow next_offset until null for the whole directory; use read_card_tree for its cards.', schema: rpc.list_notebooks.schema,
+    outputSchema: z.object({ total_count: count, next_offset: count.nullable(), notebooks: z.array(z.object({ notebook_id: id, title: z.string(), document_id: nullableId, root_note_count: count })), truncated: z.boolean() }),
+  },
+  search_cards: {
+    rpc: 'search_notes', description: 'Find cards by indexed text across all MarginNote notebooks or an explicit notebook_id. Returns stable note IDs and text snippets. Handwriting pixels are not searched. At the result limit the list may be incomplete. Use read_card on a returned note_id for full text and images.', schema: rpc.search_notes.schema,
+    outputSchema: z.object({ cards: z.array(cardSchema), possibly_truncated: z.boolean(), omitted_without_note_id: count, truncated: z.boolean() }),
+  },
+  read_card: {
+    description: 'Read a complete MarginNote card: text, comments, relationships and available images/handwriting together. Omit note_id for the currently selected card. Default media_source=auto checks card media, linked visual comments and sketch, then focus rendering if needed. Inspect returned images. In code execution, forward image blocks with image(block), not only text(result); otherwise open media[].image_file_path with a local image tool (Codex view_image or Claude Code Read). stroke_count is not a transcription. Continue media pages with returned card.note_id and next_media_offset. include_media=false reads text/structure only.',
+    schema: z.object({ note_id: id.optional(), include_media: z.boolean().default(true), media_source: z.enum(['auto', 'note', 'sketch', 'focus_image']).default('auto'), media_offset: count.default(0), media_limit: z.number().int().min(1).max(4).default(3) }).strict().superRefine((v, ctx) => { if (v.media_offset > 0 && !v.note_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Pass note_id when continuing media pagination' }); }),
+    outputSchema: z.object({ card: cardSchema, selection_resolved: z.boolean(), media: z.array(mediaSchema), media_total_count: count, next_media_offset: count.nullable(), media_inventory_truncated: z.boolean(), media_status: z.enum(['not_requested', 'none', 'ready', 'partial', 'unavailable']), handwriting_detected: z.boolean(), handwriting_evidence: z.array(z.string()), visual_reading_required: z.boolean(), warnings: z.array(z.string()), truncated: z.boolean() }),
+  },
+  read_card_tree: {
+    rpc: 'get_library_page', description: 'Read a whole notebook card tree or one root_note_id subtree in bounded pages. The first page returns accurate total_count, stable note IDs, parents and order; continue with next_offset and snapshot_id in the same scope. Restart on STALE_SNAPSHOT. Images are not embedded across a whole library; use read_card for cards with visual hints, unknown visual status or truncated text.', schema: rpc.get_library_page.schema,
+    outputSchema: z.object({ notebook_id: id, root_note_id: nullableId, snapshot_id: id, total_count: count, next_offset: count.nullable(), cards: z.array(z.object({ note_id: id, parent_note_id: nullableId, order: count, document_id: nullableId, title: z.string(), excerpt: z.string(), content: z.string(), content_truncated: z.boolean(), media_count: count.nullable().default(null), has_visual_content: z.boolean().nullable().default(null), comment_count: count, comments: z.array(comment.extend({ truncated: z.boolean() })), comments_truncated: z.boolean(), summary_link_ids: z.array(nullableId), summary_links_truncated: z.boolean() })), truncated: z.boolean() }),
+  },
+  read_pdf_page: {
+    description: 'Read the currently open MarginNote PDF page in one call: local file location, physical page index, embedded text, OCR status and rendered page image. Open image_file_path if your client does not show the image, especially for handwriting/formulas. include_content=false returns only file location and page numbers. Physical page_number, printed labels and MarginNote numbering can differ. Use read_card for a mind-map card.', schema: z.object({ include_content: z.boolean().default(true) }).strict(),
+    outputSchema: z.object({ ...pdfLocation, content_included: z.boolean(), pdf_page_label: z.string().nullable(), embedded_text: z.string(), ocr_text: z.string(), ocr_engine: z.enum(['apple_vision', 'tesseract', 'unavailable', 'not_requested']), ocr_warning: z.string().nullable(), recognized_line_count: count, embedded_text_truncated: z.boolean(), ocr_text_truncated: z.boolean(), image_file_path: z.string().nullable(), image_mime_type: z.enum(['image/png', 'image/jpeg']).nullable(), image_available: z.boolean() }),
+  },
+  create_cards: {
+    rpc: 'create_framework', writes: true, description: 'Create one card or an ordered hierarchy of up to 30 cards in an explicit notebook_id. For one card pass one nodes entry. Each node has a unique key, title and optional Markdown body; parent_key must reference an earlier node. Optional parent_note_id attaches roots under an existing card. Returns created IDs and readback verification. After an unknown timeout inspect before retrying.', schema: rpc.create_framework.schema,
+    outputSchema: z.object({ notebook_id: id, all_verified: z.boolean(), cards: z.array(z.object({ key: id, note_id: id, parent_note_id: nullableId, title: z.string(), verified: z.boolean() })), truncated: z.boolean() }),
+  },
+  append_card_comment: {
+    rpc: 'append_comment', writes: true, description: 'Append text or a Markdown comment to an existing card by note_id. Use create_cards to add new cards. Returns the updated card for verification. This writes to MarginNote; inspect after an unknown timeout instead of blindly retrying.', schema: rpc.append_comment.schema,
+    outputSchema: z.object({ card: cardSchema, truncated: z.boolean() }),
+  },
+  promote_excerpt_to_title: {
+    rpc: 'promote_excerpt_to_title', writes: true, description: 'Set an existing card title to its current excerpt while preserving the excerpt. This is specifically excerpt-to-title promotion. Supply exact expected_excerpt_text from a recent card read to prevent stale edits. Writes to MarginNote.', schema: rpc.promote_excerpt_to_title.schema,
+    outputSchema: z.object({ note_id: id, title: z.string(), excerpt: z.string(), truncated: z.boolean() }),
+  },
+  preview_card_moves: {
+    rpc: 'preview_reorganization', description: 'Validate and preview up to 20 existing card moves/reorders within one notebook before user review. parent_note_id=null moves to root; before_note_id sets sibling placement. Returns snapshot_id and plan_id for apply_card_moves. Does not modify cards. Preview and apply are intentionally separate.', schema: rpc.preview_reorganization.schema,
+    outputSchema: z.object({ notebook_id: id, snapshot_id: id, plan_id: id, moves: z.array(moveResult), truncated: z.boolean() }),
+  },
+  apply_card_moves: {
+    rpc: 'apply_reorganization', writes: true, description: 'Apply exactly the moves previously returned by preview_card_moves and reviewed with the user. Supply matching expected_snapshot_id, expected_plan_id and moves. Rejects changed notebooks, cycles and cross-notebook moves; returns readback verification. This writes; inspect an unknown timeout before retrying.', schema: rpc.apply_reorganization.schema,
+    outputSchema: z.object({ notebook_id: id, all_verified: z.boolean(), moves: z.array(moveResult.extend({ verified: z.boolean() })), truncated: z.boolean() }),
+  },
+};

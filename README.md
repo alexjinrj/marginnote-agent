@@ -1,116 +1,139 @@
 # MarginNote MCP Bridge
 
-本地 MCP 桥接：Claudian / Codex → stdio MCP → 共享 RPC Host → MarginNote 4 插件。
+Codex / Claude / Claudian → stdio MCP → 手动启动的共享 RPC Host → MarginNote 4 Add-on。
 
-当前开放的只读工具：
+0.9.0 将公开 MCP 工具整理为 11 个完整任务。卡片阅读同时提供文字、评论、关系与可用图片；知识归纳、手写视觉理解和问答由客户端 Agent 完成。Host 和 Add-on 不调用模型。逐工具审查及旧能力映射见 [TOOL_REVIEW.md](docs/TOOL_REVIEW.md)。
 
-- `marginnote.get_context`
-- `marginnote.search_notes`
-- `marginnote.get_note`
-- `marginnote.get_current_pdf`
-- `marginnote.list_notebooks`
-- `marginnote.get_library_page`
-- `marginnote.preview_reorganization`
+## 启动与更新
 
-写入工具：`create_card`、`append_comment`、`create_framework`、`promote_excerpt_to_title`、`apply_reorganization`。Host 默认禁用写入；在真实 MarginNote 的可丢弃学习集上验证后，使用 `MN_ENABLE_WRITES=1 ./scripts/start-bridge.zsh` 启动 Host 才会开放。无模型配置、API Key、聊天界面或会话持久化。MarginNote 返回的内容可能由 Codex 发送给其模型服务。
-
-本机依赖及插件包已构建完成，可直接运行 `./scripts/start-bridge.zsh` 启动 Host，然后安装插件。可复制的本机配置见 [codex-mcp.toml](docs/codex-mcp.toml)。
-
-## 安装和启动
-
-需要 macOS、MarginNote 4、Node.js >=20 和 pnpm（锁文件为 pnpm-lock.yaml）。
+需要 macOS、MarginNote 4、Node.js >=20；依赖使用 pnpm-lock.yaml。
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm run verify
-pnpm start
+./scripts/start-bridge.zsh
 ```
 
-Host 默认监听 `127.0.0.1:42117`，独立于 MCP 客户端保持运行。不要同时运行旧 Agent Host。端口被占用时报告 `PORT_IN_USE`，不会停止已有进程。
+Host 前台运行，按 Ctrl-C 停止。默认监听 `127.0.0.1:42117`，默认关闭写入。需要写入时，在停止已有 Host 后运行：
 
-在 MarginNote 中安装、启用 `dist/marginnote-agent.mnaddon`，打开一个学习集窗口。插件包不含旧聊天面板。首版只支持一个连接的学习窗口；多个窗口返回 `AMBIGUOUS_CONTEXT`。不需要关闭其他应用。
+```sh
+MN_ENABLE_WRITES=1 ./scripts/start-bridge.zsh
+```
+
+安装并启用 [dist/marginnote-agent.mnaddon](dist/marginnote-agent.mnaddon)，打开一个学习集窗口。多个学习窗口返回 `AMBIGUOUS_CONTEXT`。如果 MarginNote 的「暂停插件」已选中，应先恢复插件。
 
 ```sh
 curl http://127.0.0.1:42117/health
 ```
 
-返回 `service: marginnote-mcp-bridge`、`protocol: 1`；`online: true` 表示插件正在轮询，不代表 PDF 文件路径已经验收。
+健康检查应返回 `service: marginnote-mcp-bridge`、`protocol: 1`；`online: true` 表示插件正在轮询。端口冲突会明确报错，Host 不接管已有监听进程。
 
-### 让 Host 随 MarginNote 自动启停
+更新到 0.9.0：停止并重新启动手动 Host，安装新版插件，再重新连接 MCP 客户端。MCP 启动命令和端口保持相同；旧公开工具名称已由下面的工具表替代，旧会话需要重连。新版插件和 Host 保留手写评论 IDs、媒体哈希和笔画/媒体数量；旧安装仍可进行基本卡片阅读，但增强的关联媒体信息需要更新。
 
-运行一次安装命令，此后打开 MarginNote 4 会自动启动 Host，退出 MarginNote 会自动关闭它，不必再 `source` 脚本。默认保持写入关闭：
+0.9.1 修复 Claudian/Codex 沙箱无法读取 MarginNote 私有图片缓存的问题：由手动启动的 Host 读取和渲染缓存，再通过 localhost 将图片字节传给 MCP。已经安装 0.9.0 Add-on 的用户只需重启 Host、重新连接客户端，无需重新安装 Add-on。`/health` 应显示 `version:"0.9.1"` 和 `note_media_rendering:"host"`。
 
-```sh
-node scripts/install-launch-agent.mjs
-```
+本次采用手动 Host 管理。现有 supervisor/网页控制台源码仍可用于开发；没有新增 helper app 或后台注册。
 
-安装后打开 [Host 控制台](http://127.0.0.1:42118/)（可加入浏览器书签）。这里能查看 Host/插件状态、暂停或恢复自动运行、重启 Host，以及持久开关卡片写入；不需要 Terminal。Terminal 中临时设置的 `MN_ENABLE_WRITES` 不会改变已安装后台项的状态。设置保存在本项目的 `.local/host-control.json`，不会被 Git 提交。
+## MCP 配置
 
-开发时修改 `host/src` 后，在控制台点「重启 Host」即可加载新代码；修改 `mcp/src` 后，还要新建 Codex 会话；修改 `addon/` 后，可在控制台点「构建插件包」，再安装新版插件。控制台只关闭自己启动的 Host，不会接管占用端口的手动 Host。
-
-安装器不会停止占用端口的手动 Host。如果手动 Host 正在运行，先在原 Terminal 停止它；后台项随后会接管。已有旧启动项须先核对其项目路径；不能通过杀掉未知端口进程解决冲突。回退时退出新 Host，恢复先前 Git 版本及其对应插件包。
-
-## Codex / Claudian 配置
-
-在实际使用的 Codex 配置中添加以下内容，替换两个绝对路径：
+已有配置无需重新添加 server。新配置可参考 [codex-mcp.toml](docs/codex-mcp.toml)：
 
 ```toml
 [mcp_servers.marginnote]
 command = "/absolute/path/to/node"
 args = ["/absolute/path/to/marginnote-agent/mcp/src/index.mjs"]
 startup_timeout_sec = 10
-tool_timeout_sec = 30
+tool_timeout_sec = 120
 ```
 
-也可使用 `codex mcp add marginnote -- /absolute/path/to/node /absolute/path/to/marginnote-agent/mcp/src/index.mjs`。用 `codex mcp get marginnote` 检查，然后新建 Claudian Codex 会话。Claudian 使用所选 CLI 的 MCP 配置；不要把此配置填到旧 Agent Host 的 config.json。
+stdio MCP 由客户端启动；共享 HTTP Host 仍由用户启动。组合卡片读取和本地 PDF OCR 可能超过 30 秒，因此建议工具超时设为 120 秒。
 
-本机 Node 路径（本次已验证）：`/Users/alexjinrj/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`。它是工具捆绑的运行时，长期使用建议安装稳定位置的 Node，并相应更新配置。
+本机 Node 路径：`/Users/alexjinrj/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`。它是工具捆绑运行时；也可安装稳定位置的 Node 并更新配置。
 
-官方说明：[Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)、[Claudian](https://github.com/YishenTu/claudian/blob/main/README.md)。
+CLI 添加示例：
 
-首版保持默认端口；如设置 `MN_BRIDGE_PORT`，Host 和 MCP 均须设置同一值，并修改 addon/config.js 的地址后重新打包安装。
+```sh
+codex mcp add marginnote -- /absolute/path/to/node /absolute/path/to/marginnote-agent/mcp/src/index.mjs
+```
 
-## 工具行为
+Claudian 使用所选 CLI 的 MCP 配置。修改工具后重连 MCP；如果新会话仍沿用旧 MCP 进程，就重启客户端。
 
-- `search_notes`：query 必填；不指定 notebook_id 时搜索所有笔记本；limit 默认 30，最大 100。达到 limit 时 possibly_truncated 为 true，不声称返回全部结果。
-- `get_note`：必须提供从上下文或搜索取得的 note_id。保留 ID 原值；正文每字段最多 20,000 字符，评论和子节点最多各 100 项，截断有标记。过大的总响应报错，不静默裁剪成无效 JSON。
-- `get_context`：返回 available、window_id、notebook、document、focus_note 和 selection_text。无活动学习上下文时 available=false。
-- `get_current_pdf`：无参数，只返回当前打开 PDF 的本地绝对路径、文件名、文档 ID、零基 `page_index` 和一基 `page_number`，不返回文档内容。Codex 应使用 `file_path` 在本机打开 PDF，再阅读 `page_number`；切换文档或页码后重新调用。若 Codex 无法访问该路径，会报告文件访问错误；本工具不会隐式复制或上传 PDF。
-- `list_notebooks`：分页列出学习集；`next_offset` 为空时才算全部列完。学习集不是 PDF 文件。
-- `get_library_page`：按学习集分页读卡片树，返回 `total_count`、稳定卡片 ID、父卡片 ID、顺序、来源文档及有限长度的内容。下一页必须传回 `snapshot_id`；内容截断时对该卡片再调用 `get_note`。
-- `create_card` / `append_comment`：在指定学习集创建一张卡片，或给已有卡片追加正文。未知结果的超时不能盲目重试。
-- `create_framework`：由 Codex 将当前对话或用户提供的聊天记录整理成有序节点列表，再在指定学习集创建卡片层级；每次最多 30 张。桥接层不读取聊天历史。
-- `promote_excerpt_to_title`：将卡片当前摘录文本设为标题，保留原摘录；必须提供完全匹配的 `expected_excerpt_text`。
-- `preview_reorganization` / `apply_reorganization`：每次最多移动 20 张卡片；`parent_note_id: null` 表示移到根层。先预览并与用户核对，再用预览返回的 `snapshot_id` 和 `plan_id` 写回。拒绝跨学习集、循环关系和预览后的变化；写回后核对父子关系。原生 Summary 节点的创建 API 尚未确认，这两个工具只修改普通卡片层级。
-- PDF 问答由 Codex 使用本地 PDF 阅读能力完成，桥接层不调用模型。
-- 原生页码字段名为 native_start_page/native_end_page，索引基准待实机验证。
-- 所有层均无自动重试；Host 原生调用超时为 15 秒，MCP HTTP 超时为 20 秒。超时结果区分 not_started 与 unknown。
-- Host 不可用、插件未连接、目标不存在、窗口歧义等是可恢复的工具错误，不终止 MCP。
-- EOF/退出只关闭当前 MCP 进程；共享 Host 需单独停止。
+## 公开工具
+
+所有名称均带 `marginnote.` 前缀；输入、输出使用 snake_case，每个工具声明 inputSchema、outputSchema 和读写 annotations。
+
+| 分类 | 工具 | 使用时机 |
+| --- | --- | --- |
+| 工作区 | `get_workspace` | 当前窗口、学习集、PDF、选中卡片 ID 和文本选区；不代替完整卡片阅读 |
+| 浏览 | `list_notebooks` | 分页列出学习集目录；notebook 是脑图学习集，不是 PDF |
+| 浏览 | `search_cards` | 按索引文字查找卡片，可指定 notebook_id；未转写的手写像素不在文字检索范围内 |
+| 阅读 | `read_card` | 一次读取当前或指定卡片的文字、评论、关系、手写和图片 |
+| 阅读 | `read_card_tree` | 按快照分页读取整个学习集或 root_note_id 子树，返回准确 total_count |
+| 阅读 | `read_pdf_page` | 当前 PDF 一页的定位、文字、OCR 状态及渲染图片；可只返回定位 |
+| 写入 | `create_cards` | 创建一张卡片或最多 30 张卡片的有序层级 |
+| 写入 | `append_card_comment` | 给既有卡片追加 text/markdown 评论 |
+| 写入 | `promote_excerpt_to_title` | 将当前摘录设为标题并保留摘录，校验 expected_excerpt_text |
+| 重组 | `preview_card_moves` | 校验和预览最多 20 张卡片的移动/排序，不写入 |
+| 重组 | `apply_card_moves` | 应用已经审阅的相同计划，校验预览 IDs 并读回核对 |
+
+### 卡片阅读
+
+询问「当前选中的卡片写了什么」时，Agent 可以直接调用：
+
+```json
+{}
+```
+
+作为 `read_card` 参数。无需先取得上下文或 note_id。明确目标时用 `{"note_id":"…"}`；只需文字/结构时加 `"include_media":false`。
+
+默认 `media_source:"auto"` 检查本卡媒体、最多四个关联视觉评论、linked sketch，并在必要时尝试文档焦点渲染。显式指定 `note`、`sketch` 或 `focus_image` 可读取原有特定来源。每次最多返回四项媒体（默认三项）；超过范围有 `next_media_offset` 或 `media_inventory_truncated`，不会声称全部读完。
+
+返回包含 `card`、`media`、`handwriting_evidence`、`media_status`。可渲染媒体以 MCP image 返回，同时提供 `media[].image_file_path`。如果客户端只给模型显示元数据，Agent 应用本地图片读取工具打开路径；笔画数不能当作内容转写。公式和模糊字符需核对原图。
+
+在 Codex code execution 中，应将 MCP image 内容块交给 `image(block)`；仅使用 `text(result)` 不会把图片作为视觉输入。也可调用 `view_image` 打开返回的图片路径。Claude Code 使用本地 `Read` 工具打开图片。
+
+续读媒体时显式传回同一 `card.note_id`、`next_media_offset` 和相同 media_source，避免选中卡片变化导致串页。关联评论超过四项时，剩余评论 IDs 仍保留在 card.comments，可直接按 ID 读取；文字/评论字段超限也有 truncated 标记。
+
+原始手写二进制存在与可渲染图片是不同状态。缓存缺失返回 `status:"unrenderable"` 和原因，仍保留文字及手写证据。原生媒体哈希优先；兼容旧安装时才查询本机只读 SQLite。缓存图片会按实际可用后缀查找，并在必要时压缩至每图 900 KB。
+
+缓存访问由 Host 执行；MCP 对旧 Host 保留本地读取兼容路径。`RENDER_CACHE_ACCESS_DENIED` 表示访问权限不足，`RENDER_CACHE_UNAVAILABLE` 表示目录不可用，均不代表卡片没有手写。优先检查 Host 是否已更新并从正常 Terminal 启动，而不是反复刷新卡片。
+
+图片位于 MCP 进程专用的系统临时目录，仅保留最近 20 张，进程正常退出时删除；异常终止可能留下目录。返回路径应尽快读取。卡片识别不使用工具内的 LLM 或 Tesseract 转写。
+
+### PDF 与卡片树
+
+`read_pdf_page` 默认返回一页的文字及图片。`{"include_content":false}` 只返回本地路径和页码。零基 page_index、一基 PDF 物理 page_number、MarginNote 页码和印刷标签可能不同，切换页面后重新调用。
+
+本地 PDFKit 提取文字并渲染页面，OCR 优先 Apple Vision、失败时尝试本机 Tesseract。OCR 不可用时仍可返回页面图片。辅助程序首次使用在 `.local/bin` 构建，需要 macOS Command Line Tools；Tesseract 为可选回退，语言取决于安装的语言包。PDF 不由桥接层上传。
+
+`read_card_tree` 下一页须传相同 notebook_id/root_note_id 和返回的 snapshot_id。直到 next_offset 为 null 才完成；发生 STALE_SNAPSHOT 时从第一页重读。卡片树不批量嵌入图片，但包含 media_count/has_visual_content 提示（旧安装不支持时为 null）。有视觉内容、状态未知或文字截断时，对相应 ID 调用 read_card。
+
+### 写入
+
+`create_cards` 的 nodes 数组每项包含唯一 key、title、可选 Markdown body、可选 parent_key。parent_key 指向前面已声明的节点；顶层可指定外部 parent_note_id。单卡片使用一个节点。
+
+移动先调用 preview_card_moves 并审阅结果，再将相同 moves、snapshot_id 和 plan_id 交给 apply_card_moves。拒绝跨学习集移动、循环、计划变更和陈旧快照。parent_note_id:null 表示根层，before_note_id 表示同级插入位置。
+
+写入由原生 Undo 分组并尽量读回验证，批量操作不保证事务回滚。未知结果的超时不能盲目重试。桥接层不删除卡片；原生 Summary 节点创建仍未实现。
 
 ## 验证
 
 ```sh
 pnpm run verify
-# 安装插件并启动 Host 后，以笔记中确实存在的词测试真实链路：
 pnpm run smoke -- "Perceptron"
-# 打开一份 PDF 后验证本地路径及页码：
+pnpm run smoke:card
 pnpm run smoke:pdf
 ```
 
-smoke 使用官方 SDK 经 stdio 调用前三个笔记工具，并用搜索返回的 ID 读取笔记。安装新版插件后可运行 `pnpm run smoke:pdf`，验证当前 PDF 路径可从同一 Node 运行环境打开；它不输出 PDF 内容。随后让 Codex 调用 `marginnote.get_current_pdf` 并阅读返回的页码。它不能代替 Claudian 界面的端到端验收。
+smoke:card 验证当前卡片的 MCP 图片与本地图片字节一致；转写质量还需由客户端模型目视确认。smoke:pdf 检查定位文件确实是可读 PDF。自动测试覆盖组合阅读、多来源、分页、缺缓存、读写映射、写入锁、快照、防循环、Host 恢复和未知写入结果。实机证据与未验收项见 [VERIFICATION.md](docs/VERIFICATION.md)。
 
-[架构审计](docs/ARCHITECTURE.md) · [项目规范](PROJECT_SPECIFICATION.md) · [验收记录](docs/VERIFICATION.md) · [待处理问题](docs/ISSUES.md)
+## 代码连接
 
-## 目录
+- `mcp/src/tools.mjs`：公开任务及输入输出 schema。
+- `mcp/src/server.mjs`：SDK 注册、公开任务到内部 RPC 的映射。
+- `mcp/src/card-reader.mjs` / `note-media.mjs` / `pdf-ocr.mjs`：组合阅读、图片和本地 PDF 处理。
+- `mcp/src/rpc-tools.mjs`：稳定内部 RPC 原语、校验、native 参数映射及标准化。
+- `host/src/bridge-server.mjs`：共享 HTTP 队列入口、写入锁与边界验证。
+- `addon/bridge-main.js` / `bridge.js` / `tools.js`：场景跟踪、轮询及 MarginNote 原生 API。
 
-```text
-addon/                    原生工具、轮询和 bridge-only 入口
-host/src/bridge-*.mjs      共享 HTTP Host
-host/src/marginnote/       可复用队列和旧工具定义
-mcp/src/                  MCP 服务、校验、映射和客户端
-mcp/test/                 新链路与插件边界测试
-scripts/                  打包、校验、监督进程、真实链路 smoke
-```
-
-旧 Agent、聊天面板和持久化模块保留供审计/回退参考，不在默认运行路径。新工具已通过模拟 MarginNote 对象的测试；真实 MarginNote 写入、Undo、卡片顺序和大型学习集性能仍需在可丢弃学习集中验收。安装新插件包并重启 Host 后才能使用新工具。
+MCP instructions 和 description 指明任务选择与图像读取路径，最终调用由客户端 Agent 决定。Host 原生调用超时 15 秒、MCP HTTP 单次超时 20 秒；没有自动重放写入。MCP stdout 仅用于协议消息。

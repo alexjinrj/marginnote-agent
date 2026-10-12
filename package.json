@@ -1,6 +1,6 @@
 {
   "name": "marginnote-agent",
-  "version": "0.6.0",
+  "version": "0.9.1",
   "private": true,
   "type": "module",
   "description": "Local MarginNote MCP bridge for Codex",
@@ -16,6 +16,7 @@
     "verify": "node --test host/test/*.test.mjs mcp/test/*.test.mjs && node scripts/build-addon.mjs && node scripts/verify-addon.mjs",
     "mcp": "node mcp/src/index.mjs",
     "smoke": "node scripts/smoke-bridge.mjs",
+    "smoke:card": "node scripts/smoke-current-card.mjs",
     "smoke:pdf": "node scripts/smoke-current-pdf.mjs"
   },
   "dependencies": {

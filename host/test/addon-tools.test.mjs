@@ -88,12 +88,14 @@ test("addon reads current PDF pages and returns a continuation cursor", async ()
 test("addon returns only the open PDF location and current page index", async () => {
   const tools = await loadTools({
     document: { docMd5: "doc-1", docTitle: "测试 PDF", fullPathFileName: "/tmp/测试 PDF.pdf", pageCount: 3 },
-    documentController: { currPageIndex: 2 },
+    documentController: { currPageIndex: 2, currPageNo: 7, pageNoFromIndex: () => 8 },
     selectedViews: [],
   });
   const result = tools.execute({ window: {} }, "get_current_pdf", {});
   assert.equal(result.filePath, "/tmp/测试 PDF.pdf");
   assert.equal(result.pageIndex, 2);
+  assert.equal(result.marginNotePageNo, 7);
+  assert.equal(result.mappedPageNo, 8);
   assert.equal(result.pageCount, 3);
   assert.equal(result.pages, undefined);
   assert.equal(result.text, undefined);

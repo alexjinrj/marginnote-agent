@@ -1,5 +1,25 @@
 # Verification — 2026-10-03
 
+## Claudian cache-access fix — Host/MCP 0.9.1, 2026-10-05
+
+Read the actual Claudian Codex transcript corresponding to the user's quoted failure. It called the new `read_card({})`, not a stale tool: the result had `media_status=unavailable`, `reason=RENDER_CACHE_UNAVAILABLE`, null image path and no image content block. Thus the model's reply accurately described that particular response. Direct local testing of the same selected card returned a readable image. The private-cache access was in the MCP subprocess, whose execution context differs from the manually started Host.
+
+Moved the render stage into the Host after native media normalization. A permission-restricted Node client, allowed to read only the repository and its temporary directory, reproduced no image against the existing 0.9.0 Host. An isolated read-only 0.9.1 Host test reused live native card/media identifiers from that running Host and rendered the real cache image. The same restricted stdio MCP client returned `media_status=ready`, an image block, and a matching 147,714-byte local JPEG for the selected 81-stroke card. Opened the JPEG and verified the implication/transitivity handwriting. This test did not replace the existing Host or modify notes. Native macOS nested sandbox execution was unavailable in this environment; the restricted-client verification used Node file permissions instead.
+
+Added an SDK/HTTP regression test with a permission-restricted stdio subprocess and opaque handwriting returned by the simulated Add-on. The Host supplied pixels before MCP processing. No Add-on changes are required for this fix. Updated descriptions/instructions also tell code-execution agents to forward image blocks with `image(block)` or open the local image path, rather than stringify images into text. The user's actual Claudian session still requires reconnecting after restarting the manual Host; automatic transcription in that UI has not yet been re-tested.
+
+Final verification: 59 tests passed, 0 failed; `git diff --check` passed. The existing production-port Host remained 0.9.0 throughout this isolated verification and needs a manual restart to load 0.9.1.
+
+## Current tool release — 0.9.0, 2026-10-05
+
+The public MCP interface now advertises 11 task tools with input/output schemas. Internal RPC names remain stable. SDK-to-HTTP tests cover text-plus-image card composition, directory/tree browsing, PDF location, one-card/hierarchy creation, comment append, title promotion, preview/apply moves, write enablement, stale validation, errors and Host recovery. Native VM tests retain the original mutation checks and now verify media hashes, comment note IDs and tree visual hints. The standalone reader tests cover multi-source card media, subsequent media pages pinned to a note ID, empty text cards, missing renders, focus fallback, bounded linked comments, variable cache suffixes and PDF image delivery without OCR text. Final suite: 58 tests passed, 0 failed; addon build and archive verification passed.
+
+Live stdio MCP `read_card({})` successfully read the currently selected card `76728F3F-F57D-4816-A63A-6AABFA8A3BFC` from the user's running 0.8.0 Host/Add-on. Typed fields were empty; the card had a PaintNote comment and 81 strokes. The response contained a JPEG image block, a matching local path, `media_status=ready`, and explicit handwriting evidence. The actual JPEG (147,714 bytes, native media hash 6a910f7f49aadeb1e086d9ba95554144) was opened with the local image tool and visually showed the implication/transitivity derivation, including `¬R ⇒ ¬P ⇒ Q`. This verifies usable pixels and visual interpretation, not an OCR accuracy guarantee. The implementation contains no matching card-ID/hash condition.
+
+Further live `list_notebooks` timed out and the following PDF locator request returned MARGINNOTE_ADDON_UNAVAILABLE. A read-only MarginNote UI observation showed the selected “暂停插件” control, and Host health reported online=false. These remaining live reads were not counted as passing. No live writes were performed in the user's coursework notebook; write behavior was verified through SDK/HTTP and the native-object simulation. New native metadata propagation and real write/Undo acceptance require the user to install 0.9.0, restore the plugin, restart the manual Host and identify a disposable study set.
+
+The user chose manual Host management. No helper app, launchd registration, or automatic Host startup/shutdown was added. Existing Host ownership, no-write-retry and reconnect tests remain passing. The addon archive is rebuilt and checked separately at dist/marginnote-agent.mnaddon.
+
 ## Automated evidence
 
 - Node.js runtime used: /Users/alexjinrj/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.

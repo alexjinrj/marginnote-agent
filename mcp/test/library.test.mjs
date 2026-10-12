@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-import { nativeArguments, normalize, validate } from '../src/tools.mjs';
+import { nativeArguments, normalize, validate } from '../src/rpc-tools.mjs';
 
 async function nativeFixture() {
   const notebook = { topicId: 'nb', title: 'Study', notes: [] };
@@ -52,17 +52,59 @@ async function nativeFixture() {
   const db = {
     allNotebooks: () => [notebook, other],
     getNoteById: id => byId.get(id),
+    getSketchNoteForMindMap: (_topicId, noteId) => byId.get(noteId)?.sketchNote || null,
+    getMediaByHash: hash => media.get(hash) || null,
     createNoteWithTitleTopicid: (title, topicId) => card(title, null, topicId === 'nb' ? notebook : other),
     setNotebookSyncDirty() {},
   };
+  const media = new Map();
+  const documentController = { focusNote: a, imageFromFocusNote: () => null };
   const context = vm.createContext({
     Database: { sharedInstance: () => db },
-    Application: { sharedInstance: () => ({ refreshAfterDBChanged() {} }) },
+    Application: { sharedInstance: () => ({ refreshAfterDBChanged() {}, studyController: () => ({ readerController: { currentDocumentController: documentController } }) }) },
     UndoManager: { sharedInstance: () => ({ undoGrouping(_label, _topic, callback) { callback(); } }) },
   });
   vm.runInContext(await readFile(new URL('../../addon/tools.js', import.meta.url), 'utf8'), context);
-  return { execute: (tool, args) => context.MNAgentTools.execute({}, tool, args), card, a, b, c, d, outsider, notebook };
+  return { execute: (tool, args) => context.MNAgentTools.execute({ window: {} }, tool, args), card, media, documentController, a, b, c, d, outsider, notebook };
 }
+
+test('card media exposes raster images and identifies non-image data', async () => {
+  const f = await nativeFixture();
+  const pngHash = 'a'.repeat(32);
+  const strokeHash = 'b'.repeat(32);
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0]);
+  const strokes = Buffer.from('wrd\xf0stroke data', 'latin1');
+  f.a.mediaList = `${pngHash}-${strokeHash}-`;
+  f.a.getStrokesCount = () => 2;
+  f.media.set(pngHash, { length: png.length, base64Encoding: () => png.toString('base64') });
+  f.media.set(strokeHash, { length: strokes.length, base64Encoding: () => strokes.toString('base64') });
+  const args = validate('get_note_media', { note_id: f.a.noteId });
+  assert.deepEqual(nativeArguments('get_note_media', args), { noteId: f.a.noteId, source: 'note', mediaIndex: 0 });
+  const image = normalize('get_note_media', f.execute('get_note_media', nativeArguments('get_note_media', args)), args);
+  assert.equal(image.image_mime_type, 'image/png');
+  assert.equal(image.media_count, 2);
+  assert.equal(image.stroke_count, 2);
+  assert.equal(image.media_hash, pngHash);
+  f.a.comments = [{ type: 'PaintNote', noteId: 'linked-comment' }];
+  const card = normalize('get_note', f.execute('get_note', { noteId: f.a.noteId }), { note_id: f.a.noteId }).note;
+  assert.equal(card.media_count, 2);
+  assert.equal(card.stroke_count, 2);
+  assert.equal(card.comments[0].note_id, 'linked-comment');
+  const treeCard = f.execute('get_library_page', { topicId: 'nb', limit: 1 }).cards[0];
+  assert.equal(treeCard.hasVisualContent, true);
+  assert.equal(treeCard.mediaCount, 2);
+  const strokeArgs = validate('get_note_media', { note_id: f.a.noteId, media_index: 1 });
+  const vector = normalize('get_note_media', f.execute('get_note_media', nativeArguments('get_note_media', strokeArgs)), strokeArgs);
+  assert.equal(vector.media_format, 'wrd_binary');
+  assert.equal(vector.image_base64, null);
+  f.a.sketchNote = { noteId: 'sketch1', mediaList: `${pngHash}-`, getStrokesCount: () => 1 };
+  const sketchArgs = validate('get_note_media', { note_id: f.a.noteId, source: 'sketch' });
+  assert.equal(normalize('get_note_media', f.execute('get_note_media', nativeArguments('get_note_media', sketchArgs)), sketchArgs).media_note_id, 'sketch1');
+  f.documentController.imageFromFocusNote = () => ({ length: png.length, base64Encoding: () => png.toString('base64') });
+  const focusArgs = validate('get_note_media', { note_id: f.a.noteId, source: 'focus_image' });
+  assert.equal(normalize('get_note_media', f.execute('get_note_media', nativeArguments('get_note_media', focusArgs)), focusArgs).image_mime_type, 'image/png');
+  assert.throws(() => f.execute('get_note_media', { noteId: f.b.noteId, source: 'focus_image', mediaIndex: 0 }), { code: 'MEDIA_UNAVAILABLE' });
+});
 
 test('notebook and card pagination preserve relationships and reject stale snapshots', async () => {
   const f = await nativeFixture();
@@ -75,6 +117,12 @@ test('notebook and card pagination preserve relationships and reject stale snaps
   assert.deepEqual([...first.cards, ...second.cards].map(c => c.noteId), [f.a.noteId, f.b.noteId, f.c.noteId, f.d.noteId]);
   assert.equal(first.cards[1].parentNoteId, f.a.noteId);
   assert.equal(second.nextOffset, null);
+  const subtree = f.execute('get_library_page', { topicId: 'nb', rootNoteId: f.a.noteId, offset: 0, limit: 2 });
+  assert.equal(subtree.totalCount, 3);
+  assert.deepEqual(Array.from(subtree.cards, c => c.noteId), [f.a.noteId, f.b.noteId]);
+  assert.equal(subtree.nextOffset, 2);
+  assert.deepEqual(Array.from(f.execute('get_library_page', { topicId: 'nb', rootNoteId: f.a.noteId, offset: 2, limit: 2, snapshotId: subtree.snapshotId }).cards, c => c.noteId), [f.c.noteId]);
+  assert.throws(() => f.execute('get_library_page', { topicId: 'nb', rootNoteId: f.outsider.noteId }), { code: 'NOTE_NOT_FOUND' });
   f.c.noteTitle = 'changed';
   assert.throws(() => f.execute('get_library_page', { topicId: 'nb', offset: 2, snapshotId: first.snapshotId }), { code: 'STALE_SNAPSHOT' });
 });
@@ -129,6 +177,8 @@ test('reorganization requires matching preview, rejects cycles and verifies move
 test('MCP contracts map bounded library reads and mark writes as non-idempotent', () => {
   const args = validate('get_library_page', { notebook_id: 'nb', limit: 2 });
   assert.deepEqual(nativeArguments('get_library_page', args), { topicId: 'nb', offset: 0, limit: 2 });
+  const subtreeArgs = validate('get_library_page', { notebook_id: 'nb', root_note_id: 'n1' });
+  assert.deepEqual(nativeArguments('get_library_page', subtreeArgs), { topicId: 'nb', offset: 0, limit: 30, rootNoteId: 'n1' });
   const page = normalize('get_library_page', { topicId: 'nb', snapshotId: '4-ab', totalCount: 4, nextOffset: 2, cards: [{ noteId: 'n1', parentNoteId: '', order: 0, title: 'A' }] }, args);
   assert.equal(page.cards[0].note_id, 'n1');
   assert.equal(page.snapshot_id, '4-ab');

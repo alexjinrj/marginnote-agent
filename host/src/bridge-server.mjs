@@ -1,9 +1,10 @@
 import http from 'node:http';
 import { MarginNoteBridge } from './marginnote/bridge.mjs';
 import { BridgeError, errorData } from '../../mcp/src/errors.mjs';
-import { tools, validate, nativeArguments, normalize } from '../../mcp/src/tools.mjs';
+import { tools, validate, nativeArguments, normalize } from '../../mcp/src/rpc-tools.mjs';
 import { SERVICE, PROTOCOL } from '../../mcp/src/config.mjs';
 import { isMarginNoteRunning } from '../../scripts/marginnote-host-supervisor.mjs';
+import { renderedNoteImage } from '../../mcp/src/note-media.mjs';
 
 const MAX_BYTES = 2097152;
 function send(res, status, body) {
@@ -24,7 +25,7 @@ async function read(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString()); }
   catch { throw new BridgeError('INVALID_ARGUMENT', 'Invalid JSON'); }
 }
-export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning = isMarginNoteRunning, writesEnabled = process.env.MN_ENABLE_WRITES === '1' } = {}) {
+export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning = isMarginNoteRunning, writesEnabled = process.env.MN_ENABLE_WRITES === '1', renderMedia = renderedNoteImage } = {}) {
   const bridge = new MarginNoteBridge({ timeoutMs, offlineAfterMs: 5000 });
   const server = http.createServer(async (req, res) => {
     try {
@@ -35,7 +36,7 @@ export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning
       }
       const url = new URL(req.url, `http://${authority}`);
       if (req.method === 'GET' && url.pathname === '/health') {
-        send(res, 200, { service: SERVICE, protocol: PROTOCOL, version: '0.6.0', online: bridge.status().online, writes_enabled: writesEnabled });
+        send(res, 200, { service: SERVICE, protocol: PROTOCOL, version: '0.9.1', online: bridge.status().online, writes_enabled: writesEnabled, note_media_rendering: 'host' });
         return;
       }
       if (req.method === 'GET' && url.pathname === '/api/marginnote/next') {
@@ -73,7 +74,11 @@ export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning
           if (running === false) throw new BridgeError('MARGINNOTE_NOT_RUNNING', 'Open MarginNote 4', 'not_started');
         }
         const result = await bridge.call(body.tool, nativeArguments(body.tool, args));
-        send(res, 200, normalize(body.tool, result, args));
+        let output = normalize(body.tool, result, args);
+        // The manually started Host can read MarginNote's private render cache.
+        // MCP clients may run inside a sandbox that cannot access that directory.
+        if (body.tool === 'get_note_media') output = await renderMedia(output);
+        send(res, 200, output);
         return;
       }
       send(res, 404, { error: { code: 'INVALID_ARGUMENT', message: 'Unknown route' } });

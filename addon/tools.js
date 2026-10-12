@@ -98,6 +98,8 @@ var MNAgentTools = (function () {
       endPage: numberValue(note.endPage),
       comments: comments,
       children: children,
+      mediaCount: (stringValue(note.mediaList).match(/[a-fA-F0-9]{32}/g) || []).length,
+      strokeCount: numberValue(propertyValue(note, "getStrokesCount")),
       parentNoteId: !isNil(note.parentNote) ? stringValue(note.parentNote.noteId) : "",
     };
   }
@@ -347,11 +349,20 @@ var MNAgentTools = (function () {
       missingPage.code = "PDF_PAGE_UNAVAILABLE";
       throw missingPage;
     }
+    var marginNotePageNo = numberValue(propertyValue(documentController, "currPageNo"));
+    var mappedPageNo = null;
+    try {
+      if (typeof documentController.pageNoFromIndex === "function") {
+        mappedPageNo = numberValue(documentController.pageNoFromIndex(pageIndex));
+      }
+    } catch (error) {}
     return {
       docMd5: stringValue(propertyValue(document, "docMd5")),
       title: stringValue(propertyValue(document, "docTitle")),
       filePath: filePath,
       pageIndex: pageIndex,
+      marginNotePageNo: marginNotePageNo,
+      mappedPageNo: mappedPageNo,
       pageCount: numberValue(propertyValue(document, "pageCount")),
     };
   }
@@ -516,13 +527,32 @@ var MNAgentTools = (function () {
 
   function libraryPage(args) {
     var topicId = stringValue(args.topicId);
-    var cards = notebookCards(topicId);
-    var snapshot = snapshotId(cards);
+    var allCards = notebookCards(topicId);
+    var snapshot = snapshotId(allCards);
     if (args.snapshotId && args.snapshotId !== snapshot) fail("STALE_SNAPSHOT", "Notebook changed; restart pagination");
+    var rootNoteId = stringValue(args.rootNoteId);
+    var cards = allCards;
+    if (rootNoteId) {
+      var rootIndex = -1;
+      for (var i = 0; i < allCards.length; i += 1) {
+        if (allCards[i].noteId === rootNoteId) { rootIndex = i; break; }
+      }
+      if (rootIndex < 0) fail("NOTE_NOT_FOUND", "Root card is outside the target notebook");
+      var descendants = Object.create(null);
+      descendants[rootNoteId] = true;
+      cards = [];
+      for (var j = rootIndex; j < allCards.length; j += 1) {
+        var item = allCards[j];
+        if (item.noteId !== rootNoteId && !descendants[item.parentId]) break;
+        descendants[item.noteId] = true;
+        cards.push(item);
+      }
+    }
     var offset = Math.max(0, Math.floor(Number(args.offset || 0)));
     var limit = Math.max(1, Math.min(Number(args.limit || 30), 50));
     return {
       topicId: topicId,
+      rootNoteId: rootNoteId || null,
       snapshotId: snapshot,
       totalCount: cards.length,
       nextOffset: offset + limit < cards.length ? offset + limit : null,
@@ -536,10 +566,12 @@ var MNAgentTools = (function () {
           order: item.order, docMd5: stringValue(raw.docMd5), title: stringValue(raw.noteTitle),
           excerptText: excerpt.slice(0, 4000), notesText: content.slice(0, 4000),
           contentTruncated: excerpt.length > 4000 || content.length > 4000,
+          mediaCount: (stringValue(raw.mediaList).match(/[a-fA-F0-9]{32}/g) || []).length,
+          hasVisualContent: Boolean(stringValue(raw.mediaList) || !isNil(propertyValue(raw, "excerptPic")) || comments.some(function (comment) { return /paint|sketch|handwrit|image|picture/i.test(stringValue(comment.type || comment.commentType)); })),
           commentCount: comments.length,
           comments: comments.slice(0, 10).map(function (comment) {
             var body = stringValue(comment.text || comment.noteText || comment.html);
-            return { type: stringValue(comment.type || comment.commentType), text: body.slice(0, 1000), truncated: body.length > 1000 };
+            return { type: stringValue(comment.type || comment.commentType), text: body.slice(0, 1000), noteId: stringValue(comment.noteId || comment.noteid), truncated: body.length > 1000 };
           }),
           commentsTruncated: comments.length > 10,
           summaryLinkIds: arrayValue(raw.summaryLinks).map(function (link) { return stringValue(link.noteId); }).filter(Boolean).slice(0, 100),
@@ -698,6 +730,55 @@ var MNAgentTools = (function () {
     return serializeNote(note, Boolean(args.includeChildren));
   }
 
+  function getNoteMedia(addon, args) {
+    var noteId = stringValue(args.noteId);
+    var note = Database.sharedInstance().getNoteById(noteId);
+    if (!note) fail("NOTE_NOT_FOUND", "Note not found: " + noteId);
+    var source = args.source === "sketch" ? "sketch" : (args.source === "focus_image" ? "focus_image" : "note");
+    var mediaNote = note;
+    if (source === "sketch") {
+      var lookup = Database.sharedInstance().getSketchNoteForMindMap;
+      if (typeof lookup !== "function") fail("MEDIA_UNAVAILABLE", "Sketch note lookup is unavailable");
+      mediaNote = lookup.call(Database.sharedInstance(), stringValue(note.notebookId), noteId);
+      if (!mediaNote) fail("MEDIA_UNAVAILABLE", "No sketch note is linked to this card");
+    }
+    var documentController = null;
+    if (source === "focus_image") {
+      var study = studyController(addon);
+      documentController = study && study.readerController && study.readerController.currentDocumentController;
+      if (!documentController || !documentController.focusNote ||
+          stringValue(documentController.focusNote.noteId) !== noteId ||
+          typeof documentController.imageFromFocusNote !== "function") {
+        fail("MEDIA_UNAVAILABLE", "This card is not the focused document note");
+      }
+    }
+    var hashes = source === "focus_image" ? ["focus_image"] : (stringValue(mediaNote.mediaList).match(/[a-fA-F0-9]{32}/g) || []);
+    var index = Number(args.mediaIndex || 0);
+    var strokeCount = null;
+    try {
+      if (typeof mediaNote.getStrokesCount === "function") strokeCount = numberValue(mediaNote.getStrokesCount());
+    } catch (error) {}
+    var excerptPictureAvailable = !isNil(propertyValue(mediaNote, "excerptPic"));
+    if (index < 0 || Math.floor(index) !== index || index >= hashes.length) {
+      if (hashes.length) fail("INVALID_ARGUMENT", "Media index is outside this card");
+      return { noteId: noteId, source: source, mediaNoteId: stringValue(mediaNote.noteId), mediaCount: 0,
+        mediaIndex: null, strokeCount: strokeCount,
+        excerptPictureAvailable: excerptPictureAvailable, available: false, reason: "NO_MEDIA" };
+    }
+    var data = source === "focus_image" ? documentController.imageFromFocusNote() : Database.sharedInstance().getMediaByHash(hashes[index]);
+    var bytes = data ? numberValue(propertyValue(data, "length")) : null;
+    var result = { noteId: noteId, source: source, mediaNoteId: stringValue(mediaNote.noteId),
+      mediaCount: hashes.length, mediaIndex: index, mediaHash: source === "focus_image" ? null : hashes[index].toLowerCase(), strokeCount: strokeCount,
+      excerptPictureAvailable: excerptPictureAvailable, byteCount: bytes, available: false };
+    if (!data || bytes === null) { result.reason = "MEDIA_UNAVAILABLE"; return result; }
+    if (bytes > 900000) { result.reason = "MEDIA_TOO_LARGE"; return result; }
+    if (typeof data.base64Encoding !== "function") { result.reason = "MEDIA_ENCODING_UNAVAILABLE"; return result; }
+    result.base64 = stringValue(data.base64Encoding());
+    result.available = Boolean(result.base64);
+    if (!result.available) result.reason = "MEDIA_ENCODING_UNAVAILABLE";
+    return result;
+  }
+
   function createNote(addon, args) {
     var title = stringValue(args.title).trim();
     if (!title) throw new Error("title is required");
@@ -780,6 +861,8 @@ var MNAgentTools = (function () {
         return searchNotes(addon, args);
       case "get_note":
         return getNote(args);
+      case "get_note_media":
+        return getNoteMedia(addon, args);
       case "create_note":
         return createNote(addon, args);
       case "create_card":

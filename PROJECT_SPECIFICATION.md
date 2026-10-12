@@ -35,7 +35,7 @@ Allow Codex CLI inside Claudian to:
 - append comments and later create or update notes;
 - combine MarginNote data with Obsidian files in one Codex task.
 
-The bridge must not contain LLM calls, prompts, an agent loop, conversation state, or autonomous planning.
+The bridge must not contain LLM calls, model prompts, an agent loop, conversation state, or autonomous planning. It may expose static MCP initialization instructions and tool descriptions that help the client choose tools; the MCP client remains responsible for reasoning.
 
 ### Long-term outcomes
 
@@ -142,6 +142,16 @@ After the single-card write layer has passed real MarginNote persistence and Und
 The native API exposes `summaryLinks` for reading, but creation of MarginNote's special Summary nodes is not yet verified. Do not represent an ordinary parent/child grouping as a native Summary node.
 
 ## 6. MCP Tool Contracts
+
+### Current public contract — 0.9.0
+
+The user approved the task-oriented tool restructure and chose to retain manual Host management. The public MCP interface is now `get_workspace`, `list_notebooks`, `search_cards`, `read_card`, `read_card_tree`, `read_pdf_page`, `create_cards`, `append_card_comment`, `promote_excerpt_to_title`, `preview_card_moves`, and `apply_card_moves`. These supersede the earlier public tool names in the historical sections below. `mcp/src/tools.mjs` declares current input/output schemas; `docs/TOOL_REVIEW.md` maps every preceding capability to its replacement.
+
+`read_card` resolves the focused card when note_id is omitted, then pins that ID for text and media reads. It combines card text/relationships with bounded visual attachments, linked visual comments and sketch sources, image blocks and local image paths. Media pagination requires an explicit note_id on later pages. A missing handwriting render is reported separately from empty text; no handwriting transcript is fabricated.
+
+`read_pdf_page` combines the existing PDF locator with local text/OCR and rendered-page output. include_content=false retains the locator-only workflow. `create_cards` uses the existing verified framework primitive for either one node or a hierarchy. Move preview and application remain distinct; the original write lock, stale-snapshot/plan checks, bounds and unknown-timeout handling remain enforced.
+
+The shared Host continues to use stable internal native RPC names in `mcp/src/rpc-tools.mjs`. The Add-on does not launch processes; no helper app or automatic background registration is added. Agent reasoning and visual interpretation remain in the MCP client.
 
 Exact schemas must reflect the capabilities and data structures verified during the repository audit. Stable MarginNote IDs are canonical identifiers.
 
