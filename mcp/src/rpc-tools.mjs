@@ -61,7 +61,7 @@ export function normalize(tool, value, args) {
     comments: list(v.comments).map(c => ({ type: text(c.type), text: text(c.text), note_id: identifier(c.noteId) })),
     children: list(v.children).map(c => ({ note_id: identifier(c.noteId), title: text(c.title) })),
     parent_note_id: identifier(v.parentNoteId), native_start_page: v.startPage ?? null, native_end_page: v.endPage ?? null,
-    media_count: Number.isInteger(v.mediaCount) ? v.mediaCount : null, stroke_count: Number.isInteger(v.strokeCount) ? v.strokeCount : null,
+    media_count: Number.isInteger(v.mediaCount) ? v.mediaCount : null, stroke_count: Number.isInteger(value.strokeCount) ? value.strokeCount : null,
   } : null;
   let output;
   if (tool === 'get_context') {
@@ -100,7 +100,8 @@ export function normalize(tool, value, args) {
       media_index: value.mediaIndex, media_hash: /^[a-fA-F0-9]{32}$/.test(value.mediaHash || '') ? value.mediaHash.toLowerCase() : null, stroke_count: Number.isInteger(value.strokeCount) ? value.strokeCount : null,
       excerpt_picture_available: Boolean(value.excerptPictureAvailable), byte_count: value.byteCount ?? null,
       media_format: mediaFormat, image_mime_type: mimeType, image_base64: imageBase64,
-      available: Boolean(value.available), reason: value.reason || null };
+      available: Boolean(value.available), reason: value.reason || null,
+      ocr_text: value.ocr_text ?? null, ocr_engine: value.ocr_engine ?? null };
   } else if (tool === 'list_notebooks') {
     if (!Array.isArray(value?.notebooks)) throw new BridgeError('RPC_FAILURE', 'Invalid native notebook page');
     output = { total_count: value.totalCount, next_offset: value.nextOffset, notebooks: value.notebooks.map(n => ({ notebook_id: identifier(n.topicId), title: text(n.title), document_id: identifier(n.mainDocMd5), root_note_count: n.rootNoteCount })) };

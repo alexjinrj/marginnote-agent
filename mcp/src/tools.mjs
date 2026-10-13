@@ -18,6 +18,8 @@ export const mediaSchema = z.object({
   stroke_count: count.nullable(), byte_count: count.nullable(), status: z.enum(['image', 'unrenderable']),
   reason: z.string().nullable(), image_source: z.string().nullable(), image_mime_type: z.enum(['image/png', 'image/jpeg']).nullable(),
   image_file_path: z.string().nullable(), image_byte_count: count.nullable(),
+  ocr_text: z.string().nullable(),
+  ocr_engine: z.enum(['apple_vision', 'tesseract', 'unavailable']).nullable(),
 });
 const pdfLocation = {
   document_id: nullableId, title: z.string(), file_path: z.string(), file_name: z.string(),

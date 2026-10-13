@@ -80,6 +80,32 @@ function createIcon() {
 await rm(path.join(root, ".build"), { recursive: true, force: true });
 await mkdir(staging, { recursive: true });
 await mkdir(dist, { recursive: true });
+
+// Compile native helpers
+const sdk = (await execFileAsync("/usr/bin/xcrun", ["--show-sdk-path"], { cwd: root })).stdout.trim();
+const clang = (await execFileAsync("/usr/bin/xcrun", ["--find", "clang"], { cwd: root })).stdout.trim();
+const localBin = path.join(root, ".local", "bin");
+await mkdir(localBin, { recursive: true });
+
+const fs = await import("node:fs/promises");
+
+// image-ocr (for note media OCR)
+const scriptOcr = path.join(root, "scripts", "image-ocr.m");
+const binOcr = path.join(localBin, "image-ocr");
+try {
+  const srcStat = await fs.stat(scriptOcr);
+  try {
+    const binStat = await fs.stat(binOcr);
+    if (binStat.mtimeMs >= srcStat.mtimeMs) {} else throw new Error("rebuild");
+  } catch { throw new Error("not built"); }
+} catch {
+  const tmpOcr = `${binOcr}.${process.pid}.${Date.now()}`;
+  try {
+    await execFileAsync(clang, ["-isysroot", sdk, "-fobjc-arc", "-framework", "AppKit", "-framework", "Foundation", "-framework", "Vision", scriptOcr, "-o", tmpOcr], { cwd: root, timeout: 30000 });
+    await fs.rename(tmpOcr, binOcr);
+  } catch { try { await rm(tmpOcr, { force: true }); } catch {} }
+}
+
 await cp(source, staging, { recursive: true, filter: (entry) => !entry.endsWith("icon.png") });
 await cp(path.join(source, "bridge-main.js"), path.join(staging, "main.js"));
 await rm(path.join(staging, "AgentPanelController.js"), { force: true });
