@@ -38,10 +38,11 @@ structured card fields, a handwriting rendering timeout, an
 `MARGINNOTE_RPC_TIMEOUT` instead of `NOTE_NOT_FOUND`, and absent OCR fields in
 media output. They are not evidence for or against the Homebrew service.
 
-The Formula is not publishable at an immutable revision until the
-implementation is committed and its SHA is placed in a follow-up commit.
-macOS Homebrew install, `brew services`, and real MarginNote add-on/MCP
-acceptance remain required before calling the distribution workflow verified.
+The implementation is committed as `449bdab`, and the Formula is pinned to
+that revision in a follow-up commit. The commit still has to be published and
+the Formula placed in a tap before users can install it from Homebrew. macOS
+Homebrew install, `brew services`, and real MarginNote add-on/MCP acceptance
+remain required before calling the distribution workflow verified.
 
 ## Claudian cache-access fix — Host/MCP 0.9.1, 2026-10-05
 

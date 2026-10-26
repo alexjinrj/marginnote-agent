@@ -2,7 +2,7 @@ class MarginnoteAgent < Formula
   desc "Local MarginNote MCP bridge with a Homebrew-managed service console"
   homepage "https://github.com/alexjinrj/marginnote-agent"
   url "https://github.com/alexjinrj/marginnote-agent.git",
-      revision: "8fae7b5f775a58f05f7d76754247272754f847dc"
+      revision: "449bdabdec9a3355cc95851f3e37e169dc087f00"
   version "0.9.2"
   # This fork does not currently include a license file, so the formula does
   # not assert one. Add a license to the repository before publishing a tap.
