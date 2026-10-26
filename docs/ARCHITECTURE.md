@@ -1,4 +1,4 @@
-# MarginNote MCP Bridge: audit and implementation plan
+# MarginNote MCP Bridge: architecture
 
 Audit baseline: local fork alexjinrj/marginnote-agent, commit 8df0c58. Upstream provenance: shentry/marginnote-agent. Audited 2026-10-03.
 
@@ -12,7 +12,10 @@ addon/tools.js owns get_context, get_selection, read_pdf, list_notebooks, search
 
 Legacy writes run through UndoManager.undoGrouping, then mark notebook sync dirty and refresh UI. This is not evidence of transactional rollback. The bridge-only `create_card` path now validates parent membership before creating the note. Host writes remain disabled by default pending real persistence and Undo checks.
 
-scripts/marginnote-host-supervisor.mjs currently starts the old Host while MarginNote is running. An existing launchd installation can own 42117. The installer writes a user launch agent. No process occupying a port may be killed automatically.
+The current runtime does not use the legacy LaunchAgent path. Homebrew owns
+`scripts/marginnote-host-supervisor.mjs` through `brew services`; the
+supervisor starts only its own bridge child while MarginNote is running. No
+process occupying a port may be killed automatically.
 
 ## Bridge components
 
@@ -21,20 +24,55 @@ Claudian / Codex --stdio--> mcp/src/index.mjs (one per client)
                                     |
                             HTTP on 127.0.0.1:42117
                                     |
-                        host/src/bridge-main.mjs (shared)
+             supervisor child: host/src/bridge-main.mjs (shared)
                                     ^
                      addon polls /next and posts /result
                                     |
                        addon bridge-only entry point
                                     |
                           native MarginNote APIs
+
+Homebrew service: scripts/marginnote-host-supervisor.mjs
+        |-- owns the bridge child above
+        `-- dashboard on http://127.0.0.1:42118
 ```
 
-The RPC Host owns the queue and listener. Clients verify service/protocol identity on each call; they do not spawn or terminate the shared Host. Start Host with npm start or the optional supervisor. Host shutdown rejects pending calls; MCP EOF only closes its own process. Binding conflicts fail clearly. Reconnection means the next call can succeed after recovery, without retrying a previous operation.
+The RPC Host owns the queue and listener. Clients verify service/protocol identity on each call; they do not spawn or terminate the shared Host. The installed entry point for the background supervisor is `mn-agent serve`, run by `brew services`. A developer can invoke the same supervisor in the foreground, and `npm start` still starts only the bridge child for low-level testing. Host shutdown rejects pending calls; MCP EOF only closes its own process. Binding conflicts fail clearly. Reconnection means the next call can succeed after recovery, without retrying a previous operation.
+
+The supervisor follows the MarginNote 4 process. It keeps the dashboard alive
+even while the bridge is stopped, starts the bridge after MarginNote opens,
+and stops only the bridge child it created after MarginNote closes. It checks
+the bridge port before spawning and leaves an unrelated listener untouched.
+The dashboard is therefore a control plane, not the bridge itself:
+`/health` on 42118 identifies `marginnote-agent-dashboard`, while `/health` on
+42117 identifies `marginnote-mcp-bridge`.
 
 Since Host/MCP 0.9.1, `get_note_media` normalization is followed by cache rendering in the Host before the HTTP response. Exact native media hashes resolve private MarginNote cache images there; bounded PNG/JPEG bytes cross localhost to the stdio client. This avoids requiring a sandboxed Claudian/Codex MCP subprocess to read MarginNote's container. The MCP client still creates its own temporary image path and emits the standard image block. Existing Add-on 0.9.0 and RPC protocol 1 are compatible; older Hosts retain client-side cache rendering as a fallback.
 
-The optional LaunchAgent installer runs `scripts/marginnote-host-supervisor.mjs`. The user chose manual Host management; this update does not register it. When explicitly used, the supervisor follows MarginNote and owns only its own Host child. Its control page listens on `127.0.0.1:42118`; the MCP Host remains on `127.0.0.1:42117`. The page shows live Host/addon state, persists pause and write settings to ignored `.local/host-control.json`, restarts its own Host, and can rebuild/verify the addon archive. Write settings become `MN_ENABLE_WRITES` in the spawned Host environment. Control actions require a page token and same-origin request; this protects against web-page requests, not other local processes. A manually started Host occupying 42117 is never terminated by the supervisor.
+The Homebrew service runs `scripts/marginnote-host-supervisor.mjs`. The
+supervisor owns only its bridge child and serves the management page on
+`127.0.0.1:42118`. The page reports bridge and MarginNote process state,
+detects the add-on manifest and Codex MCP configuration, optionally performs a
+10-second stdio MCP handshake, shows recent logs, persists pause/write
+settings, and can rebuild the add-on archive. State is stored under
+`~/Library/Application Support/MarginNote Agent`, never in the Cellar.
+Write settings become `MN_ENABLE_WRITES` in the spawned Host environment.
+Control actions require a per-process page token and same-origin request; this
+protects against web-page requests, not other local processes. A bridge
+started outside the service and occupying 42117 is never terminated by the
+supervisor.
+
+Add-on detection only validates an installed `mnaddon.json` with add-on ID
+`com.marginnote.agent.host`. It does not claim that MarginNote has enabled the
+extension. Liveness is established separately by the bridge health response
+after the add-on begins polling. The standard search includes MarginNote's
+sandboxed container root, plus the home Containers, Application Support,
+Documents, and Applications directories. A configured explicit path wins.
+
+MCP stdio is not a background service. Each client launches
+`marginnote-agent-mcp` from the stable Homebrew `bin` link, and that process
+connects to the shared bridge. Replacing a versioned Cellar path with the
+stable link keeps client configuration valid across upgrades.
 
 Reuse native tool implementations and the queue class, with redelivery removed and typed errors added. New bridge HTTP entry point imports no LLM, prompt, AgentEngine, session store, chat server or MCP orchestration. Existing legacy modules and tests stay as reference; default startup, supervisor and addon archive use bridge-only paths. Official MCP SDK handles stdio framing, initialization, discovery and protocol validation. ESM .mjs avoids adding a compiler.
 
@@ -55,8 +93,9 @@ At most 64 pending calls; bounded HTTP bodies/responses; no automatic dispatch r
 ## Validation and rollout
 
 1. SDK client -> stdio MCP -> real HTTP Host -> mock addon, including reconnect, timeouts, schema failures, incompatible listener, default write lock and enabled write mapping.
-2. Package and inspect bridge-only mnaddon; retain legacy source outside package.
-3. Install addon, open exactly one study window, read context/search/get_note from actual MarginNote.
-4. Confirm Claudian uses Codex and discovers tools from its CLI-managed configuration. Verify real returned note IDs. Test 0.6 writes and Undo on a disposable study set before enabling them for normal use.
+2. Package and inspect the bridge-only mnaddon; retain legacy source outside the package.
+3. Install the addon, open exactly one study window, and read workspace/card/PDF data from actual MarginNote.
+4. Confirm the MCP client discovers all tools from its managed configuration. Verify real returned note IDs. Test writes and Undo on a disposable study set before enabling them for normal use.
+5. Install through the Formula, start the service with `brew services`, and verify that the dashboard follows MarginNote. These macOS service checks have not been run in the Linux validation environment.
 
 Automated test success does not satisfy steps 3 or 4. Integration evidence and unresolved limitations are recorded in docs/VERIFICATION.md.

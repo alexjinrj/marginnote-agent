@@ -13,7 +13,7 @@
 - 本机缓存查找依赖固定数据库分区和缓存后缀；插件知道精确媒体 hash，却未把 hash 返回给 MCP。缓存缺失或超限时解释不够明确。
 - 获取成功、原始媒体存在、可渲染图片、模型实际转写是不同状态，目前输出容易混淆。笔画数不能代替文字识别。
 - 公共 MCP 工具与内部 RPC 原语共用一个注册表，限制了面向用户任务的组合工具设计。
-- bridge-only 插件没有工具栏开关，只在 scene 连接时轮询 Host。Host 从独立 Terminal 或可选 supervisor 启动；现有 supervisor 追踪的是 MarginNote 进程，而不是插件启用状态。
+- bridge-only 插件没有工具栏开关，只在 scene 连接时轮询 Host。0.9.2 起 Host 由 Homebrew supervisor 管理；supervisor 追踪 MarginNote 进程，而不是插件启用状态。
 
 ## 每个现有工具的判断
 
@@ -56,7 +56,7 @@
 
 ## 生命周期决定
 
-用户已选择继续手动启动 Host。本次仅实现工具重构、卡片视觉读取和相关契约优化。Host 独立运行，MCP 客户端退出仅关闭自己的 stdio 进程。先前提议的 helper app 未实现、未安装；没有新增后台注册。
+本工具重构最初没有引入后台注册，Host 由用户手动启动。当前 0.9.2 已改为一个由 `brew services` 管理的 supervisor，它跟随 MarginNote 启停自己创建的 Host。MCP 客户端退出仍只关闭自己的 stdio 进程；原 helper app 仍未实现。
 
 ## 验证范围
 

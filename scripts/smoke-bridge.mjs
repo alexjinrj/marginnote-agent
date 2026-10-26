@@ -3,7 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { fileURLToPath } from 'node:url';
 const query = process.argv.slice(2).filter(arg => arg !== '--').join(' ').trim();
 if (!query) throw new Error('Supply a search term known to exist in MarginNote notes');
-const client = new Client({ name: 'marginnote-smoke', version: '0.9.0' });
+const client = new Client({ name: 'marginnote-smoke', version: '0.9.2' });
 try {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL('../mcp/src/index.mjs', import.meta.url))], env: { ...process.env }, stderr: 'inherit' }));
   const listed = await client.listTools();

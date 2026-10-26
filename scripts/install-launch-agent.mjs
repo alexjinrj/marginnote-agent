@@ -4,6 +4,7 @@ import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveServicePaths } from "./service-config.mjs";
 
 export const LAUNCH_AGENT_LABEL = "com.shentry.marginnote-agent";
 
@@ -146,7 +147,7 @@ async function main() {
   const domain = `gui/${process.getuid()}`;
   const target = `${domain}/${LAUNCH_AGENT_LABEL}`;
   const nodePath = await preferredNodePath();
-  const settingsPath = path.join(projectDir, ".local", "host-control.json");
+  const settingsPath = resolveServicePaths({ projectDir }).settingsFile;
   let effectiveWrites = enableWrites;
 
   if (enableWrites) {
@@ -189,5 +190,15 @@ async function main() {
 
 const scriptPath = fileURLToPath(import.meta.url);
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
-  void main();
+  if (process.env.MN_AGENT_ALLOW_LEGACY_LAUNCH_AGENT !== "1") {
+    console.error(
+      "The standalone LaunchAgent installer is deprecated because it can conflict with the Homebrew service on port 42117.",
+    );
+    console.error(
+      'Install the Homebrew service instead: brew services start marginnote-agent. Set MN_AGENT_ALLOW_LEGACY_LAUNCH_AGENT=1 only for legacy recovery.',
+    );
+    process.exitCode = 1;
+  } else {
+    void main();
+  }
 }

@@ -7,7 +7,7 @@ import { readCard } from './card-reader.mjs';
 import { serverInstructions } from './instructions.mjs';
 
 export function createMcpServer(client = new MarginNoteClient()) {
-  const server = new McpServer({ name: 'marginnote', version: '0.9.1' }, { instructions: serverInstructions });
+  const server = new McpServer({ name: 'marginnote', version: '0.9.2' }, { instructions: serverInstructions });
   for (const [key, definition] of Object.entries(tools)) {
     server.registerTool(`marginnote.${key}`, {
       description: definition.description, inputSchema: definition.schema, outputSchema: definition.outputSchema,

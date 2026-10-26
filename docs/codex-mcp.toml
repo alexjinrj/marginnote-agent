@@ -1,7 +1,10 @@
 # Local configuration snippet: merge into the Codex config used by Claudian.
 # Do not replace the rest of your configuration.
+#
+# Prefer the stable Homebrew link. `marginnote-agent mcp-config` prints the
+# exact snippet for the current installation.
 [mcp_servers.marginnote]
-command = "/Users/alexjinrj/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
-args = ["/Users/alexjinrj/Desktop/marginnote-agent/mcp/src/index.mjs"]
+command = "/opt/homebrew/bin/marginnote-agent-mcp"
+args = []
 startup_timeout_sec = 10
 tool_timeout_sec = 120
