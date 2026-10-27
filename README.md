@@ -92,6 +92,19 @@ brew services restart marginnote-agent
 
 稳定 `bin` 链接、端口和管理页 URL 在升级后保持不变。插件版本独立管理；manifest 版本变化时需要重新安装插件。完整的 tap、升级和故障排查说明见 [docs/HOMEBREW.md](docs/HOMEBREW.md)。
 
+## 卸载与数据清理
+
+先停止服务并取消登录自启动，再卸载程序；不要依赖 `brew uninstall` 自动停止正在运行的服务：
+
+```sh
+brew services stop marginnote-agent
+brew uninstall marginnote-agent
+```
+
+手动启动的 Host/supervisor 请在对应 Terminal 按 Ctrl-C 停止。MarginNote Add-on 需在 MarginNote 内卸载；MCP 客户端需删除或禁用对应配置，并关闭旧连接。
+
+卸载会保留 `~/Library/Application Support/MarginNote Agent/` 中的设置、OCR 辅助程序、重建插件包和构建目录，以及日志，方便重装使用。这些文件本身不会持续运行，也不是 MarginNote 的笔记库。正常使用时无需清理；确定不再使用时可删除，恢复默认设置或排查 OCR 时也可按项清理。删除影响、具体路径及可选的 tap 移除命令见 [卸载与数据清理指南](docs/HOMEBREW.md#uninstall-and-data-cleanup)。
+
 ## 公开工具
 
 所有名称均带 `marginnote.` 前缀；输入、输出使用 snake_case，每个工具声明 inputSchema、outputSchema 和读写 annotations。

@@ -142,6 +142,68 @@ files in the test suite and must be regenerated after add-on source changes.
 The stable `bin` links and the dashboard URL do not change on upgrade. The
 add-on itself is versioned separately; reinstall it when its version changes.
 
+## Uninstall and data cleanup
+
+Stop the managed service before removing the formula:
+
+```sh
+brew services stop marginnote-agent
+brew uninstall marginnote-agent
+```
+
+`brew services stop` stops the supervisor/dashboard and its managed Host,
+and unregisters login startup. Do not rely on `brew uninstall` to stop an
+already running service. A Host or supervisor started manually in Terminal
+must be stopped separately with Ctrl-C; the managed service does not own it.
+
+Also uninstall the add-on in MarginNote's extension manager. Remove or
+disable the MarginNote MCP entry in each client and close its existing MCP
+connection; the stdio process is owned by the client, not by `brew services`.
+
+### What remains after uninstall
+
+The formula removes its installed program and command links. It deliberately
+keeps user state outside the Cellar, so a later reinstall can reuse settings
+and generated files. Retained files are not running processes and need no
+routine cleanup.
+
+| Retained data | When to remove it | Effect of removal |
+| --- | --- | --- |
+| `~/Library/Application Support/MarginNote Agent/host-control.json` | Reset saved pause/write settings, or uninstall permanently | The next supervisor launch uses its startup defaults instead of the saved settings |
+| `~/Library/Application Support/MarginNote Agent/bin/` | Rebuild OCR helpers during troubleshooting, or uninstall permanently | Card OCR needs `marginnote-agent build-addon` again; the PDF helper is rebuilt on next use and needs Command Line Tools |
+| `~/Library/Application Support/MarginNote Agent/build/` | Reclaim build staging space | A later build recreates it |
+| `~/Library/Application Support/MarginNote Agent/marginnote-agent.mnaddon` | Remove an old generated installer, or uninstall permanently | Rebuild it or use the bundled package; this does not uninstall the add-on already installed in MarginNote |
+| `$(brew --prefix)/var/log/marginnote-agent.log` and `marginnote-agent.err.log` | Reclaim space after stopping the service, or uninstall permanently | Old diagnostic history is lost; later service runs can create new logs |
+
+Before resetting settings or removing helpers, stop the Host/supervisor and
+close MCP connections so files are not in use. For a reset rather than a full
+uninstall, remove only the relevant item above, then restart your usual Host
+or service. Preserve files if you want to keep them for a later reinstall.
+
+To remove all default user state and Homebrew service logs after stopping and
+uninstalling, these optional commands delete only this project's listed paths:
+
+```sh
+rm -rf "$HOME/Library/Application Support/MarginNote Agent"
+rm -f "$(brew --prefix)/var/log/marginnote-agent.log" \
+      "$(brew --prefix)/var/log/marginnote-agent.err.log"
+```
+
+If you used path overrides such as `MN_AGENT_STATE_DIR`, `MN_AGENT_HELPER_DIR`
+or `MN_AGENT_LOG_DIR`, inspect those configured locations separately. Source
+checkouts normally log under `~/Library/Logs/MarginNote Agent/`. The state
+directory is not the MarginNote note database: do not remove MarginNote's
+application container or original PDFs as part of this cleanup. The Desktop
+source checkout is also separate and is not removed by `brew uninstall`.
+
+Optionally remove the tap when you no longer want its formula source:
+
+```sh
+brew untap alexjinrj/marginnote-agent
+```
+
+This removes Homebrew's tap checkout, not your Desktop repository.
+
 ## Troubleshooting
 
 ```sh
