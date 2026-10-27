@@ -7,7 +7,7 @@ import { readCard } from './card-reader.mjs';
 import { serverInstructions } from './instructions.mjs';
 
 export function createMcpServer(client = new MarginNoteClient()) {
-  const server = new McpServer({ name: 'marginnote', version: '0.9.1' }, { instructions: serverInstructions });
+  const server = new McpServer({ name: 'marginnote', version: '0.9.2' }, { instructions: serverInstructions });
   for (const [key, definition] of Object.entries(tools)) {
     server.registerTool(`marginnote.${key}`, {
       description: definition.description, inputSchema: definition.schema, outputSchema: definition.outputSchema,
@@ -26,7 +26,10 @@ export function createMcpServer(client = new MarginNoteClient()) {
         return { content: [...images, { type: 'text', text: JSON.stringify(output) }], structuredContent: output };
       } catch (error) {
         const result = { error: errorData(error) };
-        return { isError: true, content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+        // Error results must not carry structuredContent. MCP clients validate it
+        // against the tool's success outputSchema and would replace the real
+        // business error with a schema-validation protocol failure.
+        return { isError: true, content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
     });
   }

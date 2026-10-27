@@ -143,15 +143,15 @@ The native API exposes `summaryLinks` for reading, but creation of MarginNote's 
 
 ## 6. MCP Tool Contracts
 
-### Current public contract — 0.9.0
+### Current public contract — 0.9.2
 
-The user approved the task-oriented tool restructure and chose to retain manual Host management. The public MCP interface is now `get_workspace`, `list_notebooks`, `search_cards`, `read_card`, `read_card_tree`, `read_pdf_page`, `create_cards`, `append_card_comment`, `promote_excerpt_to_title`, `preview_card_moves`, and `apply_card_moves`. These supersede the earlier public tool names in the historical sections below. `mcp/src/tools.mjs` declares current input/output schemas; `docs/TOOL_REVIEW.md` maps every preceding capability to its replacement.
+The user approved the task-oriented tool restructure. The public MCP interface is `get_workspace`, `list_notebooks`, `search_cards`, `read_card`, `read_card_tree`, `read_pdf_page`, `create_cards`, `append_card_comment`, `promote_excerpt_to_title`, `preview_card_moves`, and `apply_card_moves`. These supersede the earlier public tool names in the historical sections below. `mcp/src/tools.mjs` declares current input/output schemas; `docs/TOOL_REVIEW.md` maps every preceding capability to its replacement.
 
 `read_card` resolves the focused card when note_id is omitted, then pins that ID for text and media reads. It combines card text/relationships with bounded visual attachments, linked visual comments and sketch sources, image blocks and local image paths. Media pagination requires an explicit note_id on later pages. A missing handwriting render is reported separately from empty text; no handwriting transcript is fabricated.
 
 `read_pdf_page` combines the existing PDF locator with local text/OCR and rendered-page output. include_content=false retains the locator-only workflow. `create_cards` uses the existing verified framework primitive for either one node or a hierarchy. Move preview and application remain distinct; the original write lock, stale-snapshot/plan checks, bounds and unknown-timeout handling remain enforced.
 
-The shared Host continues to use stable internal native RPC names in `mcp/src/rpc-tools.mjs`. The Add-on does not launch processes; no helper app or automatic background registration is added. Agent reasoning and visual interpretation remain in the MCP client.
+The shared Host continues to use stable internal native RPC names in `mcp/src/rpc-tools.mjs`. The Add-on does not launch processes. A Homebrew-managed supervisor owns the Host and the local dashboard, while MCP stdio remains client-launched. Agent reasoning and visual interpretation remain in the MCP client.
 
 Exact schemas must reflect the capabilities and data structures verified during the repository audit. Stable MarginNote IDs are canonical identifiers.
 
@@ -396,7 +396,7 @@ The bridge should remain as small and deterministic as the verified upstream arc
 ## 17. Approved Implementation Decisions (2026-10-03)
 
 - Audit the checked-out fork and record its commit; upstream is provenance, not permission to overwrite local changes. Keep one architecture document at docs/ARCHITECTURE.md. Use existing ESM JavaScript (.mjs) and a pinned MCP SDK with a lockfile.
-- A separately managed, shared RPC Host is the sole owner of 127.0.0.1:42117. Each Codex session starts a lightweight stdio MCP process that connects to it. MCP processes never kill or take over an existing listener. Identify the host by service name and protocol version. Old Agent Hosts are incompatible. npm start and the supervisor launch the bridge Host; legacy code may remain outside the default runtime.
+- A separately managed, shared RPC Host is the sole owner of 127.0.0.1:42117. Each Codex session starts a lightweight stdio MCP process that connects to it. MCP processes never kill or take over an existing listener. Identify the host by service name and protocol version. Old Agent Hosts are incompatible. `mn-agent serve`, run by `brew services`, owns the supervisor and bridge child; `npm start` remains a bridge-only development entry point, and legacy code may remain outside the default runtime.
 - The default addon archive contains a bridge-only entry point, without the chat panel. Installation/enablement in MarginNote is part of real integration acceptance. Existing source is retained for reference and rollback through Git.
 - Phase 1 exposes only the three PoC tools, at both the MCP and RPC boundaries. The host must reject unsupported native tool names, including all mutations.
 - Current context must identify its window. Until native active-window APIs are verified, support exactly one connected MarginNote study window and return AMBIGUOUS_CONTEXT for multiple windows. Never pick a window silently. Empty selection and absent study context are normal explicit states.
@@ -406,3 +406,12 @@ The bridge should remain as small and deterministic as the verified upstream arc
 - Writes require explicit stable target IDs obtained from prior reads, independent of later UI focus. Validate notebook and parent membership before creating anything. Undo grouping is not assumed to roll back failures; partial writes must be reported honestly. Verify persistence and Undo on a disposable test note before enabling Stage 3.
 - Bound pending requests and HTTP payloads, validate loopback Host/Origin, and reject unknown RPC methods. Local-only transport does not imply local-only model inference: Codex may send returned content to its configured model provider.
 - Stage 0 records actual Claudian/Codex versions and configuration loading. Stage 1 includes real tool discovery from Claudian. Stage 4 consolidates documentation and full regression checks. Mock success is never reported as real MarginNote or Claudian acceptance.
+
+## 18. Homebrew Service Decision (2026-10-27)
+
+- One foreground supervisor is owned by `brew services`. It serves the dashboard and starts or stops only its own bridge child as MarginNote opens or closes.
+- MCP stdio remains client-launched. It is not installed or managed as a second background service.
+- Runtime settings, generated add-ons, helper binaries, and build staging live under `~/Library/Application Support/MarginNote Agent`, outside the Homebrew Cellar.
+- Client configuration uses Homebrew's stable `bin/marginnote-agent-mcp` link so upgrades do not invalidate it.
+- The supervisor must not terminate an unrelated process that already owns the bridge port.
+- The dashboard may detect an installed add-on manifest but must not claim that MarginNote has enabled the extension. Bridge liveness remains the independent connected-state signal.

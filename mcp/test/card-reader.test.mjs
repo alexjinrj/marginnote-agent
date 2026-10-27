@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { readCard } from '../src/card-reader.mjs';
@@ -37,7 +37,9 @@ const read = (f, args = {}) => readCard(f.client, tools.read_card.schema.parse(a
 test('one card task combines typed text, visual comment, sketch and pinned selection', async () => {
   const f = fixture({ comments: [{ type: 'PaintNote', noteId: 'comment-B' }], mediaCall: args => {
     assert.notEqual(args.source, 'focus_image');
-    return { ...media(args.note_id, args.source, args.media_index, 1), stroke_count: args.note_id === 'comment-B' ? 12 : null };
+    return { ...media(args.note_id, args.source, args.media_index, 1), stroke_count: args.note_id === 'comment-B' ? 12 : null,
+      ocr_text: args.note_id === 'comment-B' ? 'comment OCR' : null,
+      ocr_engine: args.note_id === 'comment-B' ? 'apple_vision' : null };
   } });
   const { output, images } = await read(f);
   assert.equal(output.card.content, 'typed text');
@@ -48,6 +50,7 @@ test('one card task combines typed text, visual comment, sketch and pinned selec
   assert.equal(output.media_status, 'ready');
   assert.equal(f.calls.filter(c => c.tool === 'get_context').length, 1);
   assert.ok(f.calls.filter(c => c.tool === 'get_note_media').every(c => ['card-A', 'comment-B'].includes(c.args.note_id)));
+  assert.deepEqual(output.media.map(m => [m.ocr_text, m.ocr_engine]), [[null, null], ['comment OCR', 'apple_vision'], [null, null]]);
   tools.read_card.outputSchema.parse(output);
 });
 
@@ -117,6 +120,45 @@ test('cached handwriting resolves exact native hash and variable render suffix',
   assert.equal(absent.image_unavailable_reason, 'RENDER_CACHE_MISSING_OR_UNREADABLE');
 });
 
+test('direct native image bytes receive best-effort OCR before reaching the card output', async () => {
+  const calls = [];
+  const bytes = Buffer.alloc(1001, 1);
+  const result = await renderedNoteImage({
+    note_id: 'card-A', source: 'note', media_index: 0,
+    image_base64: bytes.toString('base64'), image_mime_type: 'image/png',
+  }, {
+    lookupHash: async () => { throw new Error('Direct images must not use the render cache'); },
+    ocrImage: async file => {
+      calls.push(file);
+      assert.deepEqual(await readFile(file), bytes);
+      return { ocr_text: 'native image text', ocr_engine: 'apple_vision' };
+    },
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(result.ocr_text, 'native image text');
+  assert.equal(result.ocr_engine, 'apple_vision');
+  await assert.rejects(readFile(calls[0]), { code: 'ENOENT' });
+  const noText = await renderedNoteImage({
+    note_id: 'card-A', source: 'note', media_index: 0,
+    image_base64: bytes.toString('base64'), image_mime_type: 'image/png',
+  }, {
+    lookupHash: async () => { throw new Error('Direct images must not use the render cache'); },
+    ocrImage: async () => null,
+  });
+  assert.equal(noText.ocr_text, undefined);
+  assert.equal(noText.ocr_attempted, true);
+  const alreadyProcessed = await renderedNoteImage({ ...result }, {
+    lookupHash: async () => { throw new Error('Processed images must not use the render cache'); },
+    ocrImage: async () => { throw new Error('OCR must not run twice'); },
+  });
+  assert.equal(alreadyProcessed.ocr_text, 'native image text');
+  const alreadyAttempted = await renderedNoteImage(noText, {
+    lookupHash: async () => { throw new Error('Attempted images must not use the render cache'); },
+    ocrImage: async () => { throw new Error('OCR must not run twice after a failed attempt'); },
+  });
+  assert.equal(alreadyAttempted.ocr_attempted, true);
+});
+
 test('PDF task resolves page once and retains visual input when OCR has no text', async () => {
   let locationCalls = 0, extractCalls = 0;
   const pdf = normalize('get_current_pdf', { filePath: '/private/tmp/example.pdf', pageIndex: 4, pageCount: 6 }, {});
@@ -129,7 +171,14 @@ test('PDF task resolves page once and retains visual input when OCR has no text'
   assert.equal(result.images.length, 1);
   assert.equal(result.output.image_available, true);
   assert.equal(result.output.ocr_engine, 'unavailable');
+  assert.equal(result.output.page_image_source, 'original_pdf');
+  assert.equal(result.output.margin_note_annotations_included, false);
+  assert.match(result.output.annotation_warning, /original PDF/);
   tools.read_pdf_page.outputSchema.parse(result.output);
-  await readPdfPage(client, { include_content: false }, { extract() { throw new Error('Must not render locator-only requests'); } });
+  const locatorOnly = await readPdfPage(client, { include_content: false }, { extract() { throw new Error('Must not render locator-only requests'); } });
+  assert.equal(locatorOnly.output.page_image_source, null);
+  assert.equal(locatorOnly.output.margin_note_annotations_included, false);
+  assert.equal(locatorOnly.output.annotation_warning, null);
+  tools.read_pdf_page.outputSchema.parse(locatorOnly.output);
   assert.equal(extractCalls, 1);
 });

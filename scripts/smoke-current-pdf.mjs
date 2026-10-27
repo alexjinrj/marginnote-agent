@@ -3,11 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const client = new Client({ name: 'marginnote-pdf-smoke', version: '0.9.0' });
+const client = new Client({ name: 'marginnote-pdf-smoke', version: '0.9.2' });
 try {
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL('../mcp/src/index.mjs', import.meta.url))], env: { ...process.env }, stderr: 'inherit' }));
   const response = await client.callTool({ name: 'marginnote.read_pdf_page', arguments: { include_content: false } });
-  if (response.isError) throw new Error(response.structuredContent?.error?.code || 'MCP tool failed');
+  if (response.isError) throw new Error(JSON.parse(response.content?.[0]?.text || '{}').error?.code || 'MCP tool failed');
   const pdf = response.structuredContent;
   const file = await open(pdf.file_path, 'r');
   try {

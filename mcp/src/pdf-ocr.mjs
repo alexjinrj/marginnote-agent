@@ -7,10 +7,12 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { BridgeError } from './errors.mjs';
 import { imageFileData, localImagePath } from './note-media.mjs';
+import { resolveServicePaths } from '../../scripts/service-config.mjs';
 
 const run = promisify(execFile);
 const script = fileURLToPath(new URL('../../scripts/pdf-page-ocr.m', import.meta.url));
-const binary = fileURLToPath(new URL('../../.local/bin/pdf-page-ocr', import.meta.url));
+const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
+const binary = path.join(resolveServicePaths({ projectDir: projectRoot }).helperDir, 'pdf-page-ocr');
 const maxText = 20000;
 
 async function ensureBinary() {
@@ -19,8 +21,12 @@ async function ensureBinary() {
   await mkdir(path.dirname(binary), { recursive: true });
   const temporary = `${binary}.${process.pid}.${randomUUID()}`;
   try {
-    const sdk = (await run('xcrun', ['--show-sdk-path'])).stdout.trim();
-    const compiler = (await run('xcrun', ['--find', 'clang'])).stdout.trim();
+    const environment = {
+      ...process.env,
+      PATH: [path.join(projectRoot, 'scripts'), process.env.PATH].filter(Boolean).join(path.delimiter),
+    };
+    const sdk = (await run('xcrun', ['--show-sdk-path'], { env: environment })).stdout.trim();
+    const compiler = (await run('xcrun', ['--find', 'clang'], { env: environment })).stdout.trim();
     await run(compiler, ['-isysroot', sdk, '-fobjc-arc', '-framework', 'AppKit', '-framework', 'Foundation', '-framework', 'PDFKit', '-framework', 'Vision', script, '-o', temporary], { timeout: 30000, maxBuffer: 1024 * 1024 });
     await rename(temporary, binary);
   } catch {
@@ -61,7 +67,8 @@ export async function ocrCurrentPdfPage(client, pdf = null) {
         engine = 'tesseract';
       } catch { engine = 'unavailable'; }
     }
-    const image = await imageFileData(imagePath);
+    // The PDF helper already performed OCR; only decode/render the page image here.
+    const image = await imageFileData(imagePath, { ocr: false });
     return {
       ...pdf,
       ...image,
@@ -88,7 +95,10 @@ export async function readPdfPage(client, args, { extract = ocrCurrentPdfPage, s
       embedded_text: result.embedded_text ?? '', ocr_text: result.ocr_text ?? '', ocr_engine: result.ocr_engine ?? 'not_requested',
       ocr_warning: result.ocr_warning ?? null, recognized_line_count: result.recognized_line_count ?? 0,
       embedded_text_truncated: result.embedded_text_truncated ?? false, ocr_text_truncated: result.ocr_text_truncated ?? false,
-      image_file_path, image_mime_type: image_mime_type ?? null, image_available: Boolean(image_base64 && image_file_path) },
+      image_file_path, image_mime_type: image_mime_type ?? null, image_available: Boolean(image_base64 && image_file_path),
+      page_image_source: image_base64 ? 'original_pdf' : null,
+      margin_note_annotations_included: false,
+      annotation_warning: args.include_content ? 'The page image and OCR come from the original PDF; MarginNote handwriting/annotations stored outside the PDF are not included.' : null },
     images: image_base64 && image_file_path ? [{ type: 'image', data: image_base64, mimeType: image_mime_type }] : [],
   };
 }

@@ -595,7 +595,7 @@ var MNAgentTools = (function () {
     var parent = args.parentNoteId ? requiredCard(stringValue(args.parentNoteId), topicId) : null;
     var keys = Object.create(null);
     for (var i = 0; i < nodes.length; i += 1) {
-      if (keys[nodes[i].key]) fail("INVALID_ARGUMENT", "Duplicate framework key");
+      if (Object.prototype.hasOwnProperty.call(keys, nodes[i].key)) fail("INVALID_ARGUMENT", "Duplicate framework key");
       keys[nodes[i].key] = i;
       if (!stringValue(nodes[i].title).trim()) fail("INVALID_ARGUMENT", "Card title is required");
       if (nodes[i].parentKey && (!Object.prototype.hasOwnProperty.call(keys, nodes[i].parentKey) || keys[nodes[i].parentKey] === i)) fail("INVALID_ARGUMENT", "Parent must precede its child");
@@ -617,10 +617,15 @@ var MNAgentTools = (function () {
     refresh(topicId);
     for (var k = 0; k < result.length; k += 1) {
       var persisted = requiredCard(result[k].noteId, topicId);
+      var persistedComments = arrayValue(persisted.comments).map(function (comment) {
+        return stringValue(comment.text || comment.noteText || comment.html);
+      });
+      var expectedBody = stringValue(nodes[k].body);
       result[k].verified = stringValue(persisted.noteTitle) === result[k].title &&
         stringValue(persisted.parentNote && persisted.parentNote.noteId) === result[k].parentNoteId;
+      result[k].bodyVerified = expectedBody ? persistedComments.some(function (text) { return text.indexOf(expectedBody) >= 0; }) : null;
     }
-    return { topicId: topicId, cards: result, allVerified: result.every(function (item) { return item.verified; }) };
+    return { topicId: topicId, cards: result, allVerified: result.every(function (item) { return item.verified && item.bodyVerified !== false; }) };
   }
 
   function promoteExcerptToTitle(args) {
