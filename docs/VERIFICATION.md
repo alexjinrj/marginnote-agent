@@ -49,11 +49,12 @@ validated instead with `scripts/verify-addon.mjs`, `unzip -t`, both shell
 wrappers with `bash -n`, the Node CLI with `node --check`, and the Formula with
 `ruby -c`.
 
-The implementation is committed as `449bdab`, and the Formula is pinned to
-that revision in a follow-up commit. The commit still has to be published and
-the Formula placed in a tap before users can install it from Homebrew. macOS
-Homebrew install, `brew services`, and real MarginNote add-on/MCP acceptance
-remain required before calling the distribution workflow verified.
+The integration is committed as `30352a1`, which combines the Homebrew
+implementation and OCR/card-verification work. The commit still has to be
+published and the Formula placed in a tap before users can install it from
+Homebrew. macOS Homebrew install, `brew services`, and real MarginNote
+add-on/MCP acceptance remain required before calling the distribution workflow
+verified.
 
 ## Claudian cache-access fix — Host/MCP 0.9.1, 2026-10-05
 
