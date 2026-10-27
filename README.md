@@ -138,7 +138,7 @@ brew services restart marginnote-agent
 
 `read_pdf_page` 默认返回一页的文字及图片。`{"include_content":false}` 只返回本地路径和页码。零基 page_index、一基 PDF 物理 page_number、MarginNote 页码和印刷标签可能不同，切换页面后重新调用。
 
-本地 PDFKit 提取文字并渲染页面，OCR 优先 Apple Vision、失败时尝试本机 Tesseract。OCR 不可用时仍可返回页面图片。辅助程序首次使用时构建到用户状态目录的 `bin/`（源码目录开发时仍为 `.local/bin`），需要 macOS Command Line Tools；Tesseract 为可选回退，语言取决于安装的语言包。PDF 不由桥接层上传。
+本地 PDFKit 提取文字并渲染页面，OCR 优先 Apple Vision、失败时尝试本机 Tesseract。OCR 不可用时仍可返回页面图片。辅助程序统一使用用户状态目录的 `bin/`，源码手动启动与 Homebrew 服务使用相同路径；`MN_AGENT_HELPER_DIR` 可覆盖，或通过 `MN_AGENT_STATE_DIR` 指定整个状态目录。PDF 辅助程序首次使用时构建；卡片 OCR 辅助程序通过 `marginnote-agent build-addon` 或 `pnpm run build:addon` 构建，需要 macOS Command Line Tools。Tesseract 为 PDF OCR 的可选回退，语言取决于安装的语言包。PDF 不由桥接层上传。
 
 `read_card_tree` 下一页须传相同 notebook_id/root_note_id 和返回的 snapshot_id。直到 next_offset 为 null 才完成；发生 STALE_SNAPSHOT 时从第一页重读。卡片树不批量嵌入图片，但包含 media_count/has_visual_content 提示（旧安装不支持时为 null）。有视觉内容、状态未知或文字截断时，对相应 ID 调用 read_card。
 

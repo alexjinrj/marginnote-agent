@@ -13,23 +13,23 @@ static NSDictionary *ocrImage(NSString *filePath) {
     if (!image) {
         return @{ @"file": filePath, @"error": @"Image file not found or invalid" };
     }
-    
+
     // Convert to CGImage
     CGSize size = image.size;
     if (size.width <= 0 || size.height <= 0) {
         return @{ @"file": filePath, @"error": @"Invalid image dimensions" };
     }
-    
+
     NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithData:
         [image TIFFRepresentation]];
     if (!rep) {
         return @{ @"file": filePath, @"error": @"Cannot convert image" };
     }
-    CGImageRef cgImage = [rep CGImageForProposedRect:NULL context:nil hints:nil];
+    CGImageRef cgImage = rep.CGImage;
     if (!cgImage) {
         return @{ @"file": filePath, @"error": @"Cannot create CGImage" };
     }
-    
+
     // Apple Vision OCR (fast, accurate for text)
     VNRecognizeTextRequest *request = [[VNRecognizeTextRequest alloc] init];
     request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
@@ -38,9 +38,9 @@ static NSDictionary *ocrImage(NSString *filePath) {
     NSString *ocrText = nil;
     NSString *visionError = nil;
     NSInteger lineCount = 0;
-    
+
     NSError *visionErrorObj = nil;
-    BOOL visionSuccess = [[VNImageRequestHandler alloc] initWithCGImage:cgImage options:@{}]
+    BOOL visionSuccess = [[[VNImageRequestHandler alloc] initWithCGImage:cgImage options:@{}]
         performRequests:@[request] error:&visionErrorObj];
     if (visionSuccess) {
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
@@ -55,7 +55,7 @@ static NSDictionary *ocrImage(NSString *filePath) {
     } else {
         visionError = visionErrorObj.localizedDescription ?: @"Unknown";
     }
-    
+
     // Return result - vision OCR text (may not capture formulas well)
     // The caller should also return the original image for Claude to interpret formulas
     return @{
@@ -72,14 +72,14 @@ int main(int argc, const char *argv[]) {
         output(@{ @"error": @"Expected exactly one image file path" });
         return 2;
     }
-    
+
     @autoreleasepool {
         NSString *filePath = [NSString stringWithUTF8String:argv[1]];
         if (!filePath || filePath.length == 0) {
             output(@{ @"error": @"Empty file path" });
             return 2;
         }
-        
+
         NSDictionary *result = ocrImage(filePath);
         output(result);
         return result[@"error"] ? 1 : 0;

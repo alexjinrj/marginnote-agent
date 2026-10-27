@@ -6,25 +6,17 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { resolveServicePaths } from '../../scripts/service-config.mjs';
 
 const run = promisify(execFile);
 const cache = path.join(os.homedir(), 'Library/Containers/QReader.MarginStudy.easy/Data/Library/Caches/MediaCacheFiles');
 const databaseRoot = path.join(os.homedir(), 'Library/Containers/QReader.MarginStudy.easy/Data/Library/Private Documents/MN4NotebookDatabase');
 const maxBytes = 900000;
 let outputDirectoryPromise;
-let ocrBinary;
 const imageFiles = [];
 
-const ocrBinaryPath = () => {
-  if (!ocrBinary) {
-    ocrBinary = path.join(
-      process.env.MN_AGENT_HELPER_DIR
-        || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.local', 'bin'),
-      'image-ocr',
-    );
-  }
-  return ocrBinary;
-};
+const projectDir = fileURLToPath(new URL('../..', import.meta.url));
+const ocrBinaryPath = () => path.join(resolveServicePaths({ projectDir }).helperDir, 'image-ocr');
 
 // OCR a single image file using the native Apple Vision helper
 async function imageOcr(filePath) {

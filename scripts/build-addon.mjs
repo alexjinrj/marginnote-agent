@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -24,23 +24,25 @@ const clang = (await execFileAsync(xcrun, ["--find", "clang"], { cwd: root })).s
 const localBin = paths.helperDir;
 await mkdir(localBin, { recursive: true });
 
-const fs = await import("node:fs/promises");
-
 // image-ocr (for note media OCR)
 const scriptOcr = path.join(root, "scripts", "image-ocr.m");
 const binOcr = path.join(localBin, "image-ocr");
+const srcStat = await stat(scriptOcr);
+let upToDate = false;
 try {
-  const srcStat = await fs.stat(scriptOcr);
-  try {
-    const binStat = await fs.stat(binOcr);
-    if (binStat.mtimeMs >= srcStat.mtimeMs) {} else throw new Error("rebuild");
-  } catch { throw new Error("not built"); }
-} catch {
+  const binStat = await stat(binOcr);
+  upToDate = binStat.isFile() && binStat.mtimeMs >= srcStat.mtimeMs;
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
+if (!upToDate) {
   const tmpOcr = `${binOcr}.${process.pid}.${Date.now()}`;
   try {
     await execFileAsync(clang, ["-isysroot", sdk, "-fobjc-arc", "-framework", "AppKit", "-framework", "Foundation", "-framework", "Vision", scriptOcr, "-o", tmpOcr], { cwd: root, timeout: 30000 });
-    await fs.rename(tmpOcr, binOcr);
-  } catch { try { await rm(tmpOcr, { force: true }); } catch {} }
+    await rename(tmpOcr, binOcr);
+  } finally {
+    await rm(tmpOcr, { force: true });
+  }
 }
 
 console.log(await packageAddonArchive({

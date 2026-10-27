@@ -123,6 +123,14 @@ brew services restart marginnote-agent
 
 Runtime state is intentionally outside the Cellar:
 
+The manual Host, service, and build scripts resolve helper paths through the
+same configuration. Set `MN_AGENT_STATE_DIR` to change the state root or
+`MN_AGENT_HELPER_DIR` to override just the helper directory. Card OCR needs
+the native helper produced by `marginnote-agent build-addon`; compilation
+errors stop that build and are reported instead of silently publishing a
+package without the helper. The bundled add-on is checked against its source
+files in the test suite and must be regenerated after add-on source changes.
+
 | Data | Location |
 | --- | --- |
 | Settings | `~/Library/Application Support/MarginNote Agent/host-control.json` |

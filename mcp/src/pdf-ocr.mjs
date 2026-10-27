@@ -7,14 +7,12 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { BridgeError } from './errors.mjs';
 import { imageFileData, localImagePath } from './note-media.mjs';
+import { resolveServicePaths } from '../../scripts/service-config.mjs';
 
 const run = promisify(execFile);
 const script = fileURLToPath(new URL('../../scripts/pdf-page-ocr.m', import.meta.url));
-const binary = path.join(
-  process.env.MN_AGENT_HELPER_DIR || fileURLToPath(new URL('../../.local/bin', import.meta.url)),
-  'pdf-page-ocr',
-);
 const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
+const binary = path.join(resolveServicePaths({ projectDir: projectRoot }).helperDir, 'pdf-page-ocr');
 const maxText = 20000;
 
 async function ensureBinary() {

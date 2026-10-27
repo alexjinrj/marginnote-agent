@@ -1,13 +1,24 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { packageAddonArchive } from "../addon-package.mjs";
+import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
+const projectDir = fileURLToPath(new URL('../..', import.meta.url));
+
+test("bundled release add-on matches the current source", async () => {
+  const archive = path.join(projectDir, 'share', 'marginnote-agent.mnaddon');
+  for (const entry of ['main.js', 'tools.js', 'bridge.js', 'network.js', 'config.js', 'mnaddon.json']) {
+    const { stdout } = await execFileAsync('/usr/bin/unzip', ['-p', archive, entry], { encoding: 'buffer' });
+    const source = path.join(projectDir, 'addon', entry === 'main.js' ? 'bridge-main.js' : entry);
+    assert.deepEqual(stdout, await readFile(source), `${entry} is stale; run npm run package:addon`);
+  }
+});
 
 test("add-on packaging creates the expected archive without native helpers", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mn-addon-package-"));

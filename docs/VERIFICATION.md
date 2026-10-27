@@ -1,5 +1,28 @@
 # Verification
 
+## Merge-blocker fixes — macOS, 2026-10-27
+
+Fixed the native OCR Objective-C message syntax and bitmap-to-CGImage access.
+The add-on build now propagates compiler errors, removes partial helper
+outputs, and does not publish a new archive after a failed compile. Build,
+manual Host, service, image OCR and PDF OCR now use `resolveServicePaths`
+for helper locations. Regenerated `share/marginnote-agent.mnaddon` from the
+current add-on sources, including duplicate-key and body-persistence checks.
+
+Validation on macOS with Node.js 24.19.0:
+
+- All 72 tests passed, with no skips. New regressions check source/bundled
+  add-on equality, compiler-error propagation and cleanup, and manual Host
+  helper discovery through `MN_AGENT_STATE_DIR` without a helper override.
+- Built the native `image-ocr` helper and verified both the generated and
+  bundled seven-entry add-on archives.
+- Generated a PNG containing `MarginNote OCR 123` and ran the real native
+  helper. It returned that exact text, one recognized line and no Vision
+  error. The sandbox blocked CVPixelBuffer creation; the successful native
+  OCR run was outside the sandbox on the generated fixture.
+- These checks do not establish actual Claudian transcription, Homebrew
+  service installation, or retrieval of MarginNote's separate PDF annotations.
+
 ## Homebrew service, dashboard and OCR integration — 2026-10-27
 
 Validation environment: Linux host, Node.js 24.22.1 from the local Playwright
