@@ -85,6 +85,8 @@ export async function readCard(client, args, { render = renderedNoteImage, save 
       image_source: imageReady ? (media.image_source || 'native_media') : null,
       image_mime_type: imageReady ? media.image_mime_type : null, image_file_path: imagePath,
       image_byte_count: imageReady ? Buffer.from(media.image_base64, 'base64').length : null,
+      ocr_text: media.ocr_text ?? null,
+      ocr_engine: media.ocr_engine ?? null,
     });
     if (imageReady) images.push({ type: 'image', data: media.image_base64, mimeType: media.image_mime_type });
   }

@@ -7,6 +7,7 @@ import { nativeArguments, normalize, validate } from '../src/rpc-tools.mjs';
 async function nativeFixture() {
   const notebook = { topicId: 'nb', title: 'Study', notes: [] };
   const other = { topicId: 'other', title: 'Other', notes: [] };
+  const behavior = { dropMarkdownComments: false };
   const byId = new Map();
   let sequence = 0;
   function card(title, parent = null, topic = notebook) {
@@ -37,7 +38,10 @@ async function nativeFixture() {
         if (this.parentNote) topic.notes.push(this);
         this.parentNote = null;
       },
-      appendMarkdownComment(text) { this.comments.push({ type: 'markdown', text }); this.notesText += text; },
+      appendMarkdownComment(text) {
+        if (!behavior.dropMarkdownComments) this.comments.push({ type: 'markdown', text });
+        this.notesText += text;
+      },
     };
     byId.set(note.noteId, note);
     topic.notes.push(note);
@@ -65,7 +69,7 @@ async function nativeFixture() {
     UndoManager: { sharedInstance: () => ({ undoGrouping(_label, _topic, callback) { callback(); } }) },
   });
   vm.runInContext(await readFile(new URL('../../addon/tools.js', import.meta.url), 'utf8'), context);
-  return { execute: (tool, args) => context.MNAgentTools.execute({ window: {} }, tool, args), card, media, documentController, a, b, c, d, outsider, notebook };
+  return { execute: (tool, args) => context.MNAgentTools.execute({ window: {} }, tool, args), card, media, documentController, a, b, c, d, outsider, notebook, behavior };
 }
 
 test('card media exposes raster images and identifies non-image data', async () => {
@@ -141,11 +145,45 @@ test('conversation outline creates a hierarchy, verifies it and promotes excerpt
   assert.equal(result.allVerified, true);
   assert.equal(result.cards[0].parentNoteId, f.d.noteId);
   assert.equal(result.cards[1].parentNoteId, result.cards[0].noteId);
+  assert.equal(result.cards[0].bodyVerified, true);
+  assert.equal(result.cards[1].bodyVerified, null);
   assert.equal(f.notebook.notes.length, 2);
   const promoted = f.execute('promote_excerpt_to_title', { noteId: f.b.noteId, expectedExcerptText: 'B excerpt' });
   assert.equal(promoted.title, 'B excerpt');
   assert.equal(promoted.excerptText, 'B excerpt');
   assert.throws(() => f.execute('promote_excerpt_to_title', { noteId: f.b.noteId, expectedExcerptText: 'old' }), { code: 'STALE_SNAPSHOT' });
+});
+
+test('framework keys are validated independently of their index, and body persistence is verified', async () => {
+  const f = await nativeFixture();
+  assert.throws(() => f.execute('create_framework', { topicId: 'nb', nodes: [
+    { key: 'first', title: 'First' },
+    { key: 'first', title: 'Duplicate' },
+  ] }), { code: 'INVALID_ARGUMENT' });
+  const result = f.execute('create_framework', { topicId: 'nb', nodes: [
+    { key: 'root', title: 'Root', body: 'Expected body' },
+  ] });
+  assert.equal(result.allVerified, true);
+  assert.equal(result.cards[0].bodyVerified, true);
+  f.behavior.dropMarkdownComments = true;
+  const missingBody = f.execute('create_framework', { topicId: 'nb', nodes: [
+    { key: 'missing', title: 'Missing body', body: 'Not persisted' },
+  ] });
+  assert.equal(missingBody.cards[0].bodyVerified, false);
+  assert.equal(missingBody.allVerified, false);
+});
+
+test('create_cards normalizes body verification and stroke count across multiple search results', () => {
+  const normalized = normalize('create_framework', { topicId: 'nb', allVerified: true, cards: [
+    { key: 'with-body', noteId: 'n1', parentNoteId: '', title: 'One', verified: true, bodyVerified: true },
+    { key: 'without-body', noteId: 'n2', parentNoteId: '', title: 'Two', verified: true, bodyVerified: null },
+  ] }, { notebook_id: 'nb', nodes: [{ key: 'with-body', title: 'One' }, { key: 'without-body', title: 'Two' }] });
+  assert.deepEqual(normalized.cards.map(c => c.body_verified), [true, null]);
+  const search = normalize('search_notes', [
+    { noteId: 'n1', title: 'One', strokeCount: 0 },
+    { noteId: 'n2', title: 'Two', strokeCount: 12 },
+  ], { query: 'x', limit: 2 });
+  assert.deepEqual(search.notes.map(n => n.stroke_count), [0, 12]);
 });
 
 test('reorganization requires matching preview, rejects cycles and verifies moved cards', async () => {

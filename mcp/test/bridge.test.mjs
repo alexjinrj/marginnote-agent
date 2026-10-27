@@ -35,6 +35,12 @@ async function next(url) {
   }
   throw new Error('Request did not arrive');
 }
+function toolError(result) {
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent, undefined);
+  assert.equal(result.content[0].type, 'text');
+  return JSON.parse(result.content[0].text).error;
+}
 
 test('SDK public tasks compose stable native RPC calls, text and images; clients share Host', async t => {
   const { host, url, post, port } = await fixture(t);
@@ -99,10 +105,11 @@ test('SDK public tasks compose stable native RPC calls, text and images; clients
 test('MCP validation and business errors preserve server health', async t => {
   const { port } = await fixture(t);
   const client = await sdkClient(t, port);
+  await client.listTools();
   const invalid = await client.callTool({ name: 'marginnote.search_cards', arguments: { query: '', limit: 101 } });
   assert.equal(invalid.isError, true);
   const offline = await client.callTool({ name: 'marginnote.get_workspace', arguments: {} });
-  assert.equal(offline.structuredContent.error.code, 'MARGINNOTE_ADDON_UNAVAILABLE');
+  assert.equal(toolError(offline).code, 'MARGINNOTE_ADDON_UNAVAILABLE');
   assert.equal((await client.listTools()).tools.length, 11);
 });
 
@@ -119,10 +126,12 @@ test('Host renders opaque handwriting for a stdio client without private-cache a
   await post('/api/marginnote/connect', { clientId: 'test' });
   assert.equal((await (await fetch(url + '/health')).json()).note_media_rendering, 'host');
   const permissionFlag = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';
+  // Duplicate permission paths crash Node's native RadixTree permission map.
+  const readPaths = [...new Set([process.cwd(), await realpath(process.cwd()), os.tmpdir(), await realpath(os.tmpdir())])];
+  const writePaths = [...new Set([os.tmpdir(), await realpath(os.tmpdir())])];
   const client = await sdkClient(t, port, [permissionFlag,
-    '--allow-fs-read=' + process.cwd(), '--allow-fs-read=' + await realpath(process.cwd()),
-    '--allow-fs-read=' + os.tmpdir(), '--allow-fs-write=' + os.tmpdir(),
-    '--allow-fs-read=' + await realpath(os.tmpdir()), '--allow-fs-write=' + await realpath(os.tmpdir())]);
+    ...readPaths.map(path => '--allow-fs-read=' + path),
+    ...writePaths.map(path => '--allow-fs-write=' + path)]);
   const pending = client.callTool({ name: 'marginnote.read_card', arguments: { note_id: 'handwritten', media_source: 'note' } });
   const note = await next(url);
   await post('/api/marginnote/result', { requestId: note.requestId, success: true, result: { noteId: 'handwritten', strokeCount: 81, comments: [{ type: 'PaintNote' }] } });
@@ -206,8 +215,9 @@ test('public notebook, comment, title and move tools preserve native contracts a
 test('combined create_cards cannot bypass the default Host write lock', async t => {
   const { port } = await fixture(t);
   const client = await sdkClient(t, port);
+  await client.listTools();
   const result = await client.callTool({ name: 'marginnote.create_cards', arguments: { notebook_id: 'book1', nodes: [{ key: 'one', title: 'One card' }] } });
-  assert.equal(result.structuredContent.error.code, 'WRITE_DISABLED');
+  assert.equal(toolError(result).code, 'WRITE_DISABLED');
   const invalid = await client.callTool({ name: 'marginnote.read_card', arguments: { media_offset: 1 } });
   assert.equal(invalid.isError, true);
 });
@@ -275,10 +285,10 @@ test('MCP survives Host restart and Host shutdown releases pending calls', async
   for (let i = 0; i < 100 && host.bridge.pending.size === 0; i++) await delay(5);
   assert.equal(host.bridge.pending.size, 1);
   await host.close();
-  assert.equal((await waiting).structuredContent.error.code, 'HOST_UNAVAILABLE');
+  assert.equal(toolError(await waiting).code, 'HOST_UNAVAILABLE');
   const restarted = createBridgeHost({ port, checkRunning: () => false });
   await restarted.listen();
   t.after(() => restarted.close());
   const result = await client.callTool({ name: 'marginnote.get_workspace', arguments: {} });
-  assert.equal(result.structuredContent.error.code, 'MARGINNOTE_NOT_RUNNING');
+  assert.equal(toolError(result).code, 'MARGINNOTE_NOT_RUNNING');
 });

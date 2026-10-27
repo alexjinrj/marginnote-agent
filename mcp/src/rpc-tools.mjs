@@ -61,7 +61,7 @@ export function normalize(tool, value, args) {
     comments: list(v.comments).map(c => ({ type: text(c.type), text: text(c.text), note_id: identifier(c.noteId) })),
     children: list(v.children).map(c => ({ note_id: identifier(c.noteId), title: text(c.title) })),
     parent_note_id: identifier(v.parentNoteId), native_start_page: v.startPage ?? null, native_end_page: v.endPage ?? null,
-    media_count: Number.isInteger(v.mediaCount) ? v.mediaCount : null, stroke_count: Number.isInteger(value.strokeCount) ? value.strokeCount : null,
+    media_count: Number.isInteger(v.mediaCount) ? v.mediaCount : null, stroke_count: Number.isInteger(v.strokeCount) ? v.strokeCount : null,
   } : null;
   let output;
   if (tool === 'get_context') {
@@ -110,7 +110,7 @@ export function normalize(tool, value, args) {
     output = { notebook_id: value.topicId, root_note_id: identifier(value.rootNoteId), snapshot_id: value.snapshotId, total_count: value.totalCount, next_offset: value.nextOffset, cards: value.cards.map(c => ({ note_id: identifier(c.noteId), parent_note_id: identifier(c.parentNoteId), order: c.order, document_id: identifier(c.docMd5), title: text(c.title), excerpt: text(c.excerptText), content: text(c.notesText), content_truncated: Boolean(c.contentTruncated), media_count: Number.isInteger(c.mediaCount) ? c.mediaCount : null, has_visual_content: typeof c.hasVisualContent === "boolean" ? c.hasVisualContent : null, comment_count: c.commentCount, comments: list(c.comments).map(x => ({ type: text(x.type), text: text(x.text), note_id: identifier(x.noteId), truncated: Boolean(x.truncated) })), comments_truncated: Boolean(c.commentsTruncated), summary_link_ids: list(c.summaryLinkIds).map(identifier), summary_links_truncated: Boolean(c.summaryLinksTruncated) })) };
   } else if (tool === 'create_framework') {
     if (value?.topicId !== args.notebook_id || !Array.isArray(value.cards)) throw new BridgeError('RPC_FAILURE', 'Invalid native framework result');
-    output = { notebook_id: value.topicId, all_verified: value.allVerified === true, cards: value.cards.map(c => ({ key: c.key, note_id: identifier(c.noteId), parent_note_id: identifier(c.parentNoteId), title: text(c.title), verified: c.verified === true })) };
+    output = { notebook_id: value.topicId, all_verified: value.allVerified === true, cards: value.cards.map(c => ({ key: c.key, note_id: identifier(c.noteId), parent_note_id: identifier(c.parentNoteId), title: text(c.title), verified: c.verified === true, body_verified: typeof c.bodyVerified === 'boolean' ? c.bodyVerified : null })) };
   } else if (tool === 'create_card' || tool === 'append_comment') {
     if (!value?.noteId || (tool === 'append_comment' && value.noteId !== args.note_id)) throw new BridgeError('RPC_FAILURE', 'Invalid native card result');
     output = { note: note(value) };

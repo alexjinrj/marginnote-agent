@@ -61,7 +61,8 @@ export async function ocrCurrentPdfPage(client, pdf = null) {
         engine = 'tesseract';
       } catch { engine = 'unavailable'; }
     }
-    const image = await imageFileData(imagePath);
+    // The PDF helper already performed OCR; only decode/render the page image here.
+    const image = await imageFileData(imagePath, { ocr: false });
     return {
       ...pdf,
       ...image,
@@ -88,7 +89,10 @@ export async function readPdfPage(client, args, { extract = ocrCurrentPdfPage, s
       embedded_text: result.embedded_text ?? '', ocr_text: result.ocr_text ?? '', ocr_engine: result.ocr_engine ?? 'not_requested',
       ocr_warning: result.ocr_warning ?? null, recognized_line_count: result.recognized_line_count ?? 0,
       embedded_text_truncated: result.embedded_text_truncated ?? false, ocr_text_truncated: result.ocr_text_truncated ?? false,
-      image_file_path, image_mime_type: image_mime_type ?? null, image_available: Boolean(image_base64 && image_file_path) },
+      image_file_path, image_mime_type: image_mime_type ?? null, image_available: Boolean(image_base64 && image_file_path),
+      page_image_source: image_base64 ? 'original_pdf' : null,
+      margin_note_annotations_included: false,
+      annotation_warning: args.include_content ? 'The page image and OCR come from the original PDF; MarginNote handwriting/annotations stored outside the PDF are not included.' : null },
     images: image_base64 && image_file_path ? [{ type: 'image', data: image_base64, mimeType: image_mime_type }] : [],
   };
 }

@@ -26,7 +26,10 @@ export function createMcpServer(client = new MarginNoteClient()) {
         return { content: [...images, { type: 'text', text: JSON.stringify(output) }], structuredContent: output };
       } catch (error) {
         const result = { error: errorData(error) };
-        return { isError: true, content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+        // Error results must not carry structuredContent. MCP clients validate it
+        // against the tool's success outputSchema and would replace the real
+        // business error with a schema-validation protocol failure.
+        return { isError: true, content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
     });
   }

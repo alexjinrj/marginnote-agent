@@ -36,6 +36,26 @@ async function imageOcr(filePath) {
   } catch { return null; }
 }
 
+async function ocrDirectImage(result, runOcr) {
+  if (!result.image_base64 || !['image/png', 'image/jpeg'].includes(result.image_mime_type)) return result;
+  if (result.ocr_attempted) return result;
+  const bytes = Buffer.from(result.image_base64, 'base64');
+  // Tiny images cannot contain useful OCR text; avoid spawning a helper for them.
+  if (bytes.length <= 1000) return { ...result, ocr_attempted: true };
+  let temporary;
+  try {
+    temporary = await mkdtemp(path.join(os.tmpdir(), 'mn-image-ocr-'));
+    const file = path.join(temporary, result.image_mime_type === 'image/png' ? 'image.png' : 'image.jpg');
+    await writeFile(file, bytes, { flag: 'wx', mode: 0o600 });
+    const ocrResult = await runOcr(file);
+    return { ...result, ...(ocrResult || {}), ocr_attempted: true };
+  } catch {
+    return { ...result, ocr_attempted: true };
+  } finally {
+    if (temporary) await rm(temporary, { recursive: true, force: true });
+  }
+}
+
 export async function localImagePath(result) {
   if (!result.image_base64 || !['image/png', 'image/jpeg'].includes(result.image_mime_type)) return null;
   const bytes = Buffer.from(result.image_base64, 'base64');
@@ -95,18 +115,22 @@ export async function imageFileData(file, { forceJpeg = false, ocr = true } = {}
       if (!imageResult) return null;
     } finally { await rm(temporary, { recursive: true, force: true }); }
   }
-  // OCR on-demand for images with content (not tiny thumbnails)
+  // OCR on-demand for images with content (not tiny thumbnails). Keep the attempt
+  // marker even when no text is returned so card pagination does not repeat it.
+  let ocrAttempted = false;
   if (ocr && bytes.length > 1000) {
+    ocrAttempted = true;
     try {
       const ocrResult = await imageOcr(file);
-      if (ocrResult) return { ...imageResult, ...ocrResult };
+      if (ocrResult) return { ...imageResult, ...ocrResult, ocr_attempted: true };
     } catch { /* OCR is best-effort */ }
   }
-  return imageResult;
+  return ocrAttempted ? { ...imageResult, ocr_attempted: true } : imageResult;
 }
 
-export async function renderedNoteImage(result, { cacheDirectory = cache, lookupHash = mediaHashForNote } = {}) {
-  if (result.image_base64) return result;
+export async function renderedNoteImage(result, { cacheDirectory = cache, lookupHash = mediaHashForNote, ocrImage = imageOcr } = {}) {
+  // Host-rendered media already carries OCR metadata; do not repeat Vision work in the MCP process.
+  if (result.image_base64) return result.ocr_engine || result.ocr_attempted ? result : ocrDirectImage(result, ocrImage);
   const mediaHash = await lookupHash(result);
   if (!mediaHash) return { ...result, image_unavailable_reason: result.reason || 'MEDIA_HASH_UNAVAILABLE' };
   let entries;

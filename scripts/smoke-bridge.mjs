@@ -9,7 +9,7 @@ try {
   const listed = await client.listTools();
   const call = async (name, args) => {
     const response = await client.callTool({ name: `marginnote.${name}`, arguments: args });
-    if (response.isError) throw new Error(response.structuredContent?.error?.code || 'MCP tool failed');
+    if (response.isError) throw new Error(JSON.parse(response.content?.[0]?.text || '{}').error?.code || 'MCP tool failed');
     return response.structuredContent;
   };
   const context = await call('get_workspace', {});
