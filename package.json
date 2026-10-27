@@ -1,6 +1,6 @@
 {
   "name": "marginnote-agent",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "private": true,
   "type": "module",
   "description": "Local MarginNote MCP bridge for Codex",
@@ -9,11 +9,11 @@
   },
   "scripts": {
     "start": "node host/src/bridge-main.mjs",
-    "install:launch-agent": "node scripts/install-launch-agent.mjs",
-    "test": "node --test host/test/*.test.mjs mcp/test/*.test.mjs",
+    "test": "node --test host/test/*.test.mjs mcp/test/*.test.mjs scripts/test/*.test.mjs",
+    "package:addon": "node scripts/addon-package.mjs",
     "build:addon": "node scripts/build-addon.mjs",
     "verify:addon": "node scripts/verify-addon.mjs",
-    "verify": "node --test host/test/*.test.mjs mcp/test/*.test.mjs && node scripts/build-addon.mjs && node scripts/verify-addon.mjs",
+    "verify": "node --test host/test/*.test.mjs mcp/test/*.test.mjs scripts/test/*.test.mjs && node scripts/build-addon.mjs && node scripts/verify-addon.mjs",
     "mcp": "node mcp/src/index.mjs",
     "smoke": "node scripts/smoke-bridge.mjs",
     "smoke:card": "node scripts/smoke-current-card.mjs",

@@ -1,62 +1,96 @@
 # MarginNote MCP Bridge
 
-Codex / Claude / Claudian → stdio MCP → 手动启动的共享 RPC Host → MarginNote 4 Add-on。
+Codex / Claude / Claudian → stdio MCP → Homebrew 管理的共享 RPC Host → MarginNote 4 Add-on。
 
-0.9.0 将公开 MCP 工具整理为 11 个完整任务。卡片阅读同时提供文字、评论、关系与可用图片；知识归纳、手写视觉理解和问答由客户端 Agent 完成。Host 和 Add-on 不调用模型。逐工具审查及旧能力映射见 [TOOL_REVIEW.md](docs/TOOL_REVIEW.md)。
+0.9.2 将桥接服务、管理面板和插件打包纳入 Homebrew 安装。共享 RPC Host 与本地管理页由一个后台 supervisor 管理，随 MarginNote 启停；stdio MCP 仍由 Codex、Claude、Claudian 等客户端按需启动。卡片阅读提供文字、评论、关系与可用图片；知识归纳、手写视觉理解和问答由客户端 Agent 完成。Host 和 Add-on 不调用模型。逐工具审查及旧能力映射见 [TOOL_REVIEW.md](docs/TOOL_REVIEW.md)。
 
-## 启动与更新
+## 安装与启动
 
-需要 macOS、MarginNote 4、Node.js >=20；依赖使用 pnpm-lock.yaml。
+需要 macOS、Homebrew、MarginNote 4。Formula 会安装 Node.js 和锁定的依赖。Xcode Command Line Tools 只在重新构建插件或使用本地 PDF OCR 时需要。
 
-```sh
-pnpm install --frozen-lockfile
-pnpm run verify
-./scripts/start-bridge.zsh
-```
-
-Host 前台运行，按 Ctrl-C 停止。默认监听 `127.0.0.1:42117`，默认关闭写入。需要写入时，在停止已有 Host 后运行：
+仓库内保留了 Formula 模板。Formula 会拉取 `url`/`revision` 指定的远端提交，并不会自动使用当前未提交的工作树。发布到 tap 前，先按 [Homebrew 指南](docs/HOMEBREW.md) 把 `url`/`revision` 指向包含实现的发布提交，然后通过 tap 安装：
 
 ```sh
-MN_ENABLE_WRITES=1 ./scripts/start-bridge.zsh
+brew install <owner>/<tap>/marginnote-agent
+brew services start marginnote-agent
+marginnote-agent status
 ```
 
-安装并启用 [dist/marginnote-agent.mnaddon](dist/marginnote-agent.mnaddon)，打开一个学习集窗口。多个学习窗口返回 `AMBIGUOUS_CONTEXT`。如果 MarginNote 的「暂停插件」已选中，应先恢复插件。
+服务默认监听桥接端口 `127.0.0.1:42117`，管理页位于 `http://127.0.0.1:42118`。supervisor 会跟随 MarginNote 进程启动和停止自己的 Host 子进程；端口已被其他进程占用时只报告冲突，不接管或终止该进程。
 
 ```sh
-curl http://127.0.0.1:42117/health
+marginnote-agent dashboard
+marginnote-agent logs --follow
+brew services restart marginnote-agent
+brew services stop marginnote-agent
 ```
 
-健康检查应返回 `service: marginnote-mcp-bridge`、`protocol: 1`；`online: true` 表示插件正在轮询。端口冲突会明确报错，Host 不接管已有监听进程。
+`marginnote-agent start|stop|restart` 会把操作委托给 `brew services`。开发时如需前台运行 supervisor，使用 `marginnote-agent serve`，按 Ctrl-C 停止。
 
-更新到 0.9.0：停止并重新启动手动 Host，安装新版插件，再重新连接 MCP 客户端。MCP 启动命令和端口保持相同；旧公开工具名称已由下面的工具表替代，旧会话需要重连。新版插件和 Host 保留手写评论 IDs、媒体哈希和笔画/媒体数量；旧安装仍可进行基本卡片阅读，但增强的关联媒体信息需要更新。
+## 安装插件与连接 MCP
 
-0.9.1 修复 Claudian/Codex 沙箱无法读取 MarginNote 私有图片缓存的问题：由手动启动的 Host 读取和渲染缓存，再通过 localhost 将图片字节传给 MCP。已经安装 0.9.0 Add-on 的用户只需重启 Host、重新连接客户端，无需重新安装 Add-on。`/health` 应显示 `version:"0.9.1"` 和 `note_media_rendering:"host"`。
+Formula 自带打包好的插件：
 
-本次采用手动 Host 管理。现有 supervisor/网页控制台源码仍可用于开发；没有新增 helper app 或后台注册。
+```sh
+marginnote-agent status
+open "$(brew --prefix)/opt/marginnote-agent/share"
+```
 
-## MCP 配置
+在 MarginNote 4 中安装 `marginnote-agent.mnaddon`，启用插件，然后打开一个学习集窗口。安装和启用仍是 MarginNote 内的手动步骤，Formula 不会修改应用容器。管理页只根据标准数据位置中的插件 manifest 判断“已安装/已检测”，插件是否启用及是否已连接由桥接健康状态单独显示。多个学习窗口会返回 `AMBIGUOUS_CONTEXT`；如果 MarginNote 的「暂停插件」已选中，应先恢复插件。
 
-已有配置无需重新添加 server。新配置可参考 [codex-mcp.toml](docs/codex-mcp.toml)：
+安装 Xcode Command Line Tools 后，也可在管理页重新构建插件包，或运行：
+
+```sh
+marginnote-agent build-addon
+```
+
+重新构建的插件保存在用户状态目录，不写入 Homebrew Cellar。
+
+MCP stdio 由客户端启动，不是第二个后台服务。打印 Codex 配置片段：
+
+```sh
+marginnote-agent mcp-config
+```
+
+Homebrew 安装会输出指向稳定链接的配置：
 
 ```toml
 [mcp_servers.marginnote]
-command = "/absolute/path/to/node"
-args = ["/absolute/path/to/marginnote-agent/mcp/src/index.mjs"]
+command = "$(brew --prefix)/bin/marginnote-agent-mcp"
+args = []
 startup_timeout_sec = 10
 tool_timeout_sec = 120
 ```
 
-stdio MCP 由客户端启动；共享 HTTP Host 仍由用户启动。组合卡片读取和本地 PDF OCR 可能超过 30 秒，因此建议工具超时设为 120 秒。
+实际使用时把命令替换为 `marginnote-agent mcp-config` 打印的绝对路径。不要指向版本化的 `Cellar/...` 路径，因为 `brew upgrade` 后它可能失效。已有配置若直接指向旧的 Node 脚本，也应更新到稳定 wrapper 后重连客户端。组合卡片读取和本地 PDF OCR 可能超过 30 秒，因此建议工具超时设为 120 秒。
 
-本机 Node 路径：`/Users/alexjinrj/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`。它是工具捆绑运行时；也可安装稳定位置的 Node 并更新配置。
+Claudian 使用所选 CLI 的 MCP 配置。修改工具或升级后重连 MCP；如果新会话仍沿用旧 MCP 进程，就重启客户端。
 
-CLI 添加示例：
+## 健康检查、写入与升级
 
 ```sh
-codex mcp add marginnote -- /absolute/path/to/node /absolute/path/to/marginnote-agent/mcp/src/index.mjs
+curl http://127.0.0.1:42117/health
+curl http://127.0.0.1:42118/health
 ```
 
-Claudian 使用所选 CLI 的 MCP 配置。修改工具后重连 MCP；如果新会话仍沿用旧 MCP 进程，就重启客户端。
+桥接健康检查应返回 `service: marginnote-mcp-bridge`、`protocol: 1`；`online: true` 表示插件正在轮询。管理页健康检查返回 `service: marginnote-agent-dashboard`、`protocol: 1`。两者是独立的进程状态：管理页和 supervisor 可以运行，而桥接正在等待 MarginNote 启动。
+
+写入默认关闭。在管理页选择 **Enable writes**，或修改设置后重启服务。设置和日志都在 Cellar 之外：
+
+```text
+设置：~/Library/Application Support/MarginNote Agent/host-control.json
+重建插件：~/Library/Application Support/MarginNote Agent/marginnote-agent.mnaddon
+辅助程序：~/Library/Application Support/MarginNote Agent/bin/
+服务日志：$(brew --prefix)/var/log/marginnote-agent*.log
+```
+
+```sh
+brew update
+brew upgrade marginnote-agent
+brew services restart marginnote-agent
+```
+
+稳定 `bin` 链接、端口和管理页 URL 在升级后保持不变。插件版本独立管理；manifest 版本变化时需要重新安装插件。完整的 tap、升级和故障排查说明见 [docs/HOMEBREW.md](docs/HOMEBREW.md)。
 
 ## 公开工具
 
@@ -104,7 +138,7 @@ Claudian 使用所选 CLI 的 MCP 配置。修改工具后重连 MCP；如果新
 
 `read_pdf_page` 默认返回一页的文字及图片。`{"include_content":false}` 只返回本地路径和页码。零基 page_index、一基 PDF 物理 page_number、MarginNote 页码和印刷标签可能不同，切换页面后重新调用。
 
-本地 PDFKit 提取文字并渲染页面，OCR 优先 Apple Vision、失败时尝试本机 Tesseract。OCR 不可用时仍可返回页面图片。辅助程序首次使用在 `.local/bin` 构建，需要 macOS Command Line Tools；Tesseract 为可选回退，语言取决于安装的语言包。PDF 不由桥接层上传。
+本地 PDFKit 提取文字并渲染页面，OCR 优先 Apple Vision、失败时尝试本机 Tesseract。OCR 不可用时仍可返回页面图片。辅助程序首次使用时构建到用户状态目录的 `bin/`（源码目录开发时仍为 `.local/bin`），需要 macOS Command Line Tools；Tesseract 为可选回退，语言取决于安装的语言包。PDF 不由桥接层上传。
 
 `read_card_tree` 下一页须传相同 notebook_id/root_note_id 和返回的 snapshot_id。直到 next_offset 为 null 才完成；发生 STALE_SNAPSHOT 时从第一页重读。卡片树不批量嵌入图片，但包含 media_count/has_visual_content 提示（旧安装不支持时为 null）。有视觉内容、状态未知或文字截断时，对相应 ID 调用 read_card。
 

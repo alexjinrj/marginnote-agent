@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+# Homebrew links this wrapper out of libexec/bin, so resolve the link before
+# locating the JavaScript CLI and its adjacent source tree.
+resolved=$0
+while [ -L "$resolved" ]; do
+  target=$(readlink "$resolved")
+  case "$target" in
+    /*) resolved=$target ;;
+    *) resolved=$(dirname -- "$resolved")/$target ;;
+  esac
+done
+script_dir=$(CDPATH= cd -- "$(dirname -- "$resolved")" && pwd)
+if [ -n "${MN_AGENT_NODE_PATH:-}" ]; then
+  node_path=$MN_AGENT_NODE_PATH
+elif [ -x /opt/homebrew/bin/node ]; then
+  node_path=/opt/homebrew/bin/node
+elif [ -x /usr/local/bin/node ]; then
+  node_path=/usr/local/bin/node
+else
+  node_path=node
+fi
+exec "$node_path" "$script_dir/mn-agent" "$@"

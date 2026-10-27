@@ -8,3 +8,4 @@ addon/icon.png
 node_modules/
 .pnpm-store/
 .local/
+.worktrees/

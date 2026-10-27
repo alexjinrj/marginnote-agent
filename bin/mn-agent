@@ -1,0 +1,321 @@
+#!/usr/bin/env node
+
+import { spawn } from "node:child_process";
+import { constants } from "node:fs";
+import { access, open, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { collectIntegrationStatus } from "../scripts/integration-status.mjs";
+import { resolveServicePaths, serviceEnvironment } from "../scripts/service-config.mjs";
+
+const scriptPath = fileURLToPath(import.meta.url);
+const defaultProjectDir = path.resolve(path.dirname(scriptPath), "..");
+const COMMAND = path.basename(process.argv[1] || "marginnote-agent");
+
+function projectDirectory() {
+  return path.resolve(process.env.MN_AGENT_PROJECT_DIR || defaultProjectDir);
+}
+
+function servicePaths() {
+  return resolveServicePaths({ projectDir: projectDirectory() });
+}
+
+async function run(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env ?? process.env,
+      stdio: options.stdio ?? "inherit",
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} exited ${code ?? signal}`));
+    });
+  });
+}
+
+async function capture(command, args, options = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env ?? process.env,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.once("error", () => resolve({ ok: false, stdout: "" }));
+    child.once("exit", (code) => resolve({ ok: code === 0, stdout }));
+  });
+}
+
+async function isExecutable(candidate) {
+  try {
+    await access(candidate, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function brewBinary() {
+  for (const candidate of ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]) {
+    if (await isExecutable(candidate)) return candidate;
+  }
+  const which = await capture("/usr/bin/which", ["brew"]);
+  return which.ok ? which.stdout.trim() : null;
+}
+
+async function serviceCommand(action, args) {
+  if (process.env.MN_AGENT_SERVICE_MODE?.startsWith("Foreground")) {
+    throw new Error(
+      `"${action}" is disabled while running in foreground mode. Use the Homebrew service instead.`,
+    );
+  }
+  const brew = await brewBinary();
+  if (!brew) {
+    throw new Error(
+      `Homebrew is not installed. Run "${COMMAND} serve" for a foreground service, or install with Homebrew.`,
+    );
+  }
+  const formula = process.env.MN_AGENT_BREW_FORMULA || "marginnote-agent";
+  await run(brew, ["services", action, formula, ...args], { cwd: projectDirectory() });
+  if (action === "start") {
+    console.log(`Dashboard: http://127.0.0.1:${process.env.MN_AGENT_CONTROL_PORT || 42118}`);
+  }
+}
+
+async function serve() {
+  const projectDir = projectDirectory();
+  const supervisor = path.join(projectDir, "scripts", "marginnote-host-supervisor.mjs");
+  await access(supervisor, constants.R_OK);
+  const environment = {
+    ...serviceEnvironment({ projectDir }),
+    MN_AGENT_PROJECT_DIR: projectDir,
+    MN_AGENT_SERVICE_MODE: process.env.MN_AGENT_SERVICE_MODE || "Foreground supervisor",
+  };
+  await run(process.execPath, [supervisor], {
+    cwd: projectDir,
+    env: environment,
+  });
+}
+
+async function bridgeHealth(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(1_000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return payload.service === "marginnote-mcp-bridge"
+      ? payload
+      : { reachable: true, unexpected_service: true };
+  } catch {
+    return null;
+  }
+}
+
+async function dashboardHealth(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(1_000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return payload.service === "marginnote-agent-dashboard" ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+async function status({ json = false } = {}) {
+  const projectDir = projectDirectory();
+  const paths = servicePaths();
+  const port = Number(process.env.MN_BRIDGE_PORT || 42117);
+  const controlPort = Number(process.env.MN_AGENT_CONTROL_PORT || 42118);
+  const [health, dashboard, integration] = await Promise.all([
+    bridgeHealth(port),
+    dashboardHealth(controlPort),
+    collectIntegrationStatus({ projectDir, probe: false }),
+  ]);
+  const result = {
+    bridge: health,
+    dashboard_url: `http://127.0.0.1:${controlPort}`,
+    dashboard_running: Boolean(dashboard),
+    port,
+    state_dir: paths.stateDir,
+    addon: integration.addon,
+    mcp: integration.mcp,
+    margin_note: integration.margin_note,
+  };
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return health || dashboard ? 0 : 1;
+  }
+  console.log(`Bridge:      ${health ? `running (${health.version ?? "unknown version"})` : "stopped"}`);
+  console.log(`Dashboard:   ${dashboard ? result.dashboard_url : `not reachable (${result.dashboard_url})`}`);
+  console.log(`Add-on:      ${integration.addon.installed ? `${integration.addon.version ?? "installed"} at ${integration.addon.directory}` : "not detected"}`);
+  console.log(`Add-on pkg:  ${integration.addon.built_archive_available ? integration.addon.archive : integration.addon.bundled_archive_available ? integration.addon.bundled_archive : "not packaged"}`);
+  console.log(`MCP config:  ${integration.mcp.configured ? integration.mcp.config_path : "not configured"}`);
+  console.log(`MCP files:   ${integration.mcp.installed ? "installed" : "incomplete"}`);
+  console.log(`MCP target:  ${integration.mcp.points_to_this_project ? "this installation" : "different installation"}`);
+  console.log(`MarginNote:  ${integration.margin_note.running ? "running" : "not detected"}`);
+  console.log(`State:       ${paths.stateDir}`);
+  return health || dashboard ? 0 : 1;
+}
+
+async function openDashboard() {
+  const port = Number(process.env.MN_AGENT_CONTROL_PORT || 42118);
+  const url = `http://127.0.0.1:${port}`;
+  if (process.platform !== "darwin") {
+    console.log(url);
+    return;
+  }
+  await run("/usr/bin/open", [url]);
+}
+
+async function readTail(filePath, byteLength = 32_768) {
+  let handle;
+  try {
+    handle = await open(filePath, "r");
+    const { size } = await handle.stat();
+    const length = Math.min(size, byteLength);
+    if (!length) return "";
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, size - length);
+    return buffer.toString("utf8", 0, bytesRead);
+  } catch (error) {
+    if (error.code === "ENOENT") return "";
+    throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
+async function logs({ follow = false } = {}) {
+  const { logDir } = servicePaths();
+  const files = ["marginnote-agent.log", "marginnote-agent.err.log"].map((name) =>
+    path.join(logDir, name),
+  );
+  for (const file of files) {
+    const output = await readTail(file);
+    if (!output) continue;
+    console.log(`\n--- ${file} ---`);
+    console.log(output.trimEnd());
+  }
+  if (!follow) return 0;
+  console.log(`\nFollowing ${logDir}. Press Ctrl-C to stop.`);
+  await run("/usr/bin/tail", ["-n", "0", "-F", ...files]);
+  return 0;
+}
+
+async function buildAddon() {
+  const projectDir = projectDirectory();
+  await run(process.execPath, [path.join(projectDir, "scripts", "build-addon.mjs")], {
+    cwd: projectDir,
+    env: serviceEnvironment({ projectDir }),
+  });
+  await run(process.execPath, [path.join(projectDir, "scripts", "verify-addon.mjs")], {
+    cwd: projectDir,
+  });
+}
+
+async function mcpConfig() {
+  const paths = servicePaths();
+  const config = `[mcp_servers.marginnote]
+command = ${JSON.stringify(paths.mcpWrapper)}
+args = []
+startup_timeout_sec = 10
+tool_timeout_sec = 120
+`;
+  console.log(config);
+  console.log(`Add this to ${process.env.CODEX_HOME || path.join(process.env.HOME, ".codex")}/config.toml.`);
+}
+
+function printHelp() {
+  console.log(`MarginNote Agent
+
+Usage:
+  ${COMMAND} <command>
+
+Commands:
+  serve          Run the supervisor and dashboard in the foreground
+  dashboard      Open the local management dashboard
+  status         Show bridge, add-on, and MCP configuration status
+  logs [--follow] Show recent service logs
+  build-addon    Build and verify the MarginNote add-on package
+  mcp-config     Print the Codex MCP configuration
+  start          Start the Homebrew service
+  stop           Stop the Homebrew service
+  restart        Restart the Homebrew service
+  --version      Show the installed version
+  help           Show this help
+
+Environment:
+  MN_AGENT_PROJECT_DIR       Installed project/libexec directory
+  MN_BRIDGE_PORT             Bridge port (default 42117)
+  MN_AGENT_CONTROL_PORT      Dashboard port (default 42118)
+  MN_AGENT_STATE_DIR         Settings and generated files
+  MN_AGENT_LOG_DIR           Service logs
+  MN_AGENT_ADDON_PATH        Explicit installed .mnaddon directory
+  MN_AGENT_CODEX_CONFIG      Explicit Codex config.toml
+`);
+}
+
+function hasHelpFlag(args) {
+  return args.includes("-h") || args.includes("--help");
+}
+
+async function version() {
+  const metadata = JSON.parse(
+    await readFile(path.join(projectDirectory(), "package.json"), "utf8"),
+  );
+  console.log(metadata.version);
+}
+
+async function main() {
+  const [command = "help", ...args] = process.argv.slice(2);
+  if (hasHelpFlag(args) || command === "help") {
+    printHelp();
+    return 0;
+  }
+  if (command === "--version" || command === "-V") {
+    await version();
+    return 0;
+  }
+  switch (command.toLowerCase()) {
+    case "serve":
+      if (args.length) throw new Error(`Unknown serve option: ${args[0]}`);
+      await serve();
+      return 0;
+    case "dashboard":
+      await openDashboard();
+      return 0;
+    case "status":
+      return status({ json: args.includes("--json") });
+    case "logs":
+      return logs({ follow: args.includes("--follow") || args.includes("-f") });
+    case "build-addon":
+      await buildAddon();
+      return 0;
+    case "mcp-config":
+      await mcpConfig();
+      return 0;
+    case "start":
+    case "stop":
+    case "restart":
+      await serviceCommand(command.toLowerCase(), args);
+      return 0;
+    default:
+      throw new Error(`Unknown command: ${command}. Run "${COMMAND} help".`);
+  }
+}
+
+try {
+  process.exitCode = await main();
+} catch (error) {
+  console.error(`Error: ${error.message}`);
+  process.exitCode = 1;
+}

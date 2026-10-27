@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+# Resolve the installed wrapper through its symlink so the entrypoint and
+# node_modules come from the same immutable Homebrew Cellar version.
+resolved=$0
+while [ -L "$resolved" ]; do
+  target=$(readlink "$resolved")
+  case "$target" in
+    /*) resolved=$target ;;
+    *) resolved=$(dirname -- "$resolved")/$target ;;
+  esac
+done
+bin_dir=$(CDPATH= cd -- "$(dirname -- "$resolved")" && pwd)
+project_dir=${MN_AGENT_PROJECT_DIR:-$(dirname -- "$bin_dir")}
+if [ -n "${MN_AGENT_NODE_PATH:-}" ]; then
+  node_path=$MN_AGENT_NODE_PATH
+elif [ -x /opt/homebrew/bin/node ]; then
+  node_path=/opt/homebrew/bin/node
+elif [ -x /usr/local/bin/node ]; then
+  node_path=/usr/local/bin/node
+else
+  node_path=node
+fi
+exec "$node_path" "$project_dir/mcp/src/index.mjs" "$@"

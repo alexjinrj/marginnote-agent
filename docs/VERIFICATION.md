@@ -1,4 +1,59 @@
-# Verification — 2026-10-03
+# Verification
+
+## Homebrew service, dashboard and OCR integration — 2026-10-27
+
+Validation environment: Linux host, Node.js 24.22.1 from the local Playwright
+runtime. This validates JavaScript behavior, packaging, and local HTTP
+responses only. macOS process inspection, launchd/`brew services`, real
+MarginNote integration, and the add-on installation UI were not available in
+this environment and are **not** claimed as validated.
+
+The Homebrew-focused tests passed 13/13:
+
+```sh
+/home/j/jin0722/.cache/uv/archive-v0/nC8Dlye74aq3gAVt/playwright/driver/node \
+  --test scripts/test/*.test.mjs \
+  host/test/host-control.test.mjs \
+  host/test/marginnote-host-supervisor.test.mjs
+```
+
+They cover service paths outside a Cellar, stable MCP wrapper resolution,
+add-on packaging, realistic sandboxed-container detection, manifest ID
+validation, Codex config/path drift detection, dashboard health and origin/token
+checks, and the supervisor starting/stopping only its own child while leaving
+an unrelated listener untouched. The dashboard smoke test returned:
+
+```json
+{"service":"marginnote-agent-dashboard","protocol":1}
+```
+
+`ruby -c Formula/marginnote-agent.rb`, Node syntax checks, and
+`git diff --check` passed. `share/marginnote-agent.mnaddon` is a seven-entry,
+13,294-byte archive with SHA-256
+`88fb502644f9ae04ca36dc205c981f5ed074951e1a56939f9530627fdc47f805`.
+
+After integrating the OCR/card-verification work, the full suite passed under
+the same Node.js 24 runtime: 68 passed, 0 failed, and one intentionally skipped
+test. This includes all Host, MCP, add-on VM, dashboard, service-config,
+packaging, OCR and card-verification tests. The integrated stdio bridge suite
+also passed 13/13, including the permission-restricted handwriting render.
+
+The full bridge suite is not compatible with the Node.js 26 test runner in
+this environment: two stdio subprocess tests fail there, while the same tests
+pass under Node.js 24.22.1. The project requires Node.js >=20, and Node.js 24
+is the runtime recorded here.
+
+The add-on build script cannot run on this Linux host because it requires
+macOS with Xcode Command Line Tools. The committed archive was therefore
+validated instead with `scripts/verify-addon.mjs`, `unzip -t`, both shell
+wrappers with `bash -n`, the Node CLI with `node --check`, and the Formula with
+`ruby -c`.
+
+The implementation is committed as `449bdab`, and the Formula is pinned to
+that revision in a follow-up commit. The commit still has to be published and
+the Formula placed in a tap before users can install it from Homebrew. macOS
+Homebrew install, `brew services`, and real MarginNote add-on/MCP acceptance
+remain required before calling the distribution workflow verified.
 
 ## Claudian cache-access fix — Host/MCP 0.9.1, 2026-10-05
 
@@ -18,7 +73,7 @@ Live stdio MCP `read_card({})` successfully read the currently selected card `76
 
 Further live `list_notebooks` timed out and the following PDF locator request returned MARGINNOTE_ADDON_UNAVAILABLE. A read-only MarginNote UI observation showed the selected “暂停插件” control, and Host health reported online=false. These remaining live reads were not counted as passing. No live writes were performed in the user's coursework notebook; write behavior was verified through SDK/HTTP and the native-object simulation. New native metadata propagation and real write/Undo acceptance require the user to install 0.9.0, restore the plugin, restart the manual Host and identify a disposable study set.
 
-The user chose manual Host management. No helper app, launchd registration, or automatic Host startup/shutdown was added. Existing Host ownership, no-write-retry and reconnect tests remain passing. The addon archive is rebuilt and checked separately at dist/marginnote-agent.mnaddon.
+At that time the user chose manual Host management. That historical milestone added no helper app, launchd registration, or automatic Host startup/shutdown. Existing Host ownership, no-write-retry and reconnect tests remained passing. The addon archive was rebuilt and checked separately at `dist/marginnote-agent.mnaddon`.
 
 ## Automated evidence
 
@@ -41,7 +96,7 @@ The user chose manual Host management. No helper app, launchd registration, or a
 
 ## User acceptance steps
 
-1. Start Host; install and enable dist/marginnote-agent.mnaddon in MarginNote 4.
+1. Start the Host; install and enable `dist/marginnote-agent.mnaddon` in MarginNote 4. (Historical acceptance step.)
 2. Open exactly one study window; health should show online=true.
 3. Run `pnpm run smoke -- "a term present in your notes"`. Expect context passed, search_count > 0 and get_note_id_match=true.
 4. Add the README MCP entry to the actual Codex configuration used by Claudian; start a new Codex conversation.

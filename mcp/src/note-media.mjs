@@ -17,7 +17,11 @@ const imageFiles = [];
 
 const ocrBinaryPath = () => {
   if (!ocrBinary) {
-    ocrBinary = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.local', 'bin', 'image-ocr');
+    ocrBinary = path.join(
+      process.env.MN_AGENT_HELPER_DIR
+        || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.local', 'bin'),
+      'image-ocr',
+    );
   }
   return ocrBinary;
 };

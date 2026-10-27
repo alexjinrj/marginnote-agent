@@ -10,7 +10,11 @@ import { imageFileData, localImagePath } from './note-media.mjs';
 
 const run = promisify(execFile);
 const script = fileURLToPath(new URL('../../scripts/pdf-page-ocr.m', import.meta.url));
-const binary = fileURLToPath(new URL('../../.local/bin/pdf-page-ocr', import.meta.url));
+const binary = path.join(
+  process.env.MN_AGENT_HELPER_DIR || fileURLToPath(new URL('../../.local/bin', import.meta.url)),
+  'pdf-page-ocr',
+);
+const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
 const maxText = 20000;
 
 async function ensureBinary() {
@@ -19,8 +23,12 @@ async function ensureBinary() {
   await mkdir(path.dirname(binary), { recursive: true });
   const temporary = `${binary}.${process.pid}.${randomUUID()}`;
   try {
-    const sdk = (await run('xcrun', ['--show-sdk-path'])).stdout.trim();
-    const compiler = (await run('xcrun', ['--find', 'clang'])).stdout.trim();
+    const environment = {
+      ...process.env,
+      PATH: [path.join(projectRoot, 'scripts'), process.env.PATH].filter(Boolean).join(path.delimiter),
+    };
+    const sdk = (await run('xcrun', ['--show-sdk-path'], { env: environment })).stdout.trim();
+    const compiler = (await run('xcrun', ['--find', 'clang'], { env: environment })).stdout.trim();
     await run(compiler, ['-isysroot', sdk, '-fobjc-arc', '-framework', 'AppKit', '-framework', 'Foundation', '-framework', 'PDFKit', '-framework', 'Vision', script, '-o', temporary], { timeout: 30000, maxBuffer: 1024 * 1024 });
     await rename(temporary, binary);
   } catch {

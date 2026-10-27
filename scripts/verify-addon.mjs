@@ -2,10 +2,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { resolveServicePaths } from "./service-config.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const archive = path.join(root, "dist", "marginnote-agent.mnaddon");
+const archive = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : resolveServicePaths({ projectDir: root }).addonArchive;
 const { stdout } = await execFileAsync("/usr/bin/unzip", ["-Z1", archive]);
 const entries = new Set(stdout.trim().split("\n"));
 const required = [
