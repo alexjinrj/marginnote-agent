@@ -81,6 +81,26 @@ test("add-on detection finds extensions in MarginNote's sandboxed container", as
   assert.equal(status.enabled, null);
 });
 
+test("add-on detection recognizes extracted addonid directories and rejects other manifests", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mn-addon-extracted-"));
+  t.after(() => import("node:fs/promises").then(({ rm }) => rm(root, { recursive: true, force: true })));
+  const extensions = path.join(root, "Library", "Containers", "QReader.MarginStudy.easy", "Data", "Library", "MarginNote Extensions");
+  const installed = path.join(extensions, "com.marginnote.agent.host");
+  const unrelated = path.join(extensions, "other.plugin");
+  for (const [directory, addonid] of [[installed, "com.marginnote.agent.host"], [unrelated, "other.plugin"]]) {
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "mnaddon.json"), JSON.stringify({ addonid, version: "0.9.2" }));
+  }
+  const env = { HOME: root, MN_AGENT_STATE_DIR: path.join(root, "state") };
+  const detected = await detectAddon(root, env);
+  assert.equal(detected.installed, true);
+  assert.equal(detected.directory, installed);
+  assert.equal(detected.version, "0.9.2");
+  assert.equal(detected.enabled, null);
+  assert.equal((await detectAddon(root, { ...env, MN_AGENT_ADDON_PATH: installed })).installed, true);
+  assert.equal((await detectAddon(root, { ...env, MN_AGENT_ADDON_PATH: unrelated })).installed, false);
+});
+
 test("Codex MCP detection distinguishes installation, config, and path drift", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mn-mcp-detect-"));
   t.after(() => import("node:fs/promises").then(({ rm }) => rm(root, { recursive: true, force: true })));

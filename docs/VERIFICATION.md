@@ -1,5 +1,20 @@
 # Verification
 
+## Dashboard installed-add-on detection — 0.9.3, 2026-10-27
+
+The running 0.9.2 dashboard reported `addon.installed=false` while Host health
+was online and a live MCP workspace call read the IT5005 AI notebook. The
+actual installed manifest was under `Data/Library/MarginNote Extensions/com.marginnote.agent.host/`,
+not a directory with a `.mnaddon` suffix. The detector now discovers manifest
+directories while preserving legacy suffix support and add-on ID validation.
+
+All 73 tests passed. The added regression covers the actual addonid directory
+layout, explicit path overrides and rejection of another plugin's manifest.
+The fixed detector also read the real installed 0.9.2 manifest and returned
+`installed=true` with its correct directory. Host/CLI is versioned 0.9.3 for
+Homebrew upgrade; Add-on source/archive remains 0.9.2 and needs no reinstall.
+The running Homebrew service was not upgraded or restarted by this check.
+
 ## Merge-blocker fixes — macOS, 2026-10-27
 
 Fixed the native OCR Objective-C message syntax and bitmap-to-CGImage access.

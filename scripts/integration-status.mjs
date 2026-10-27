@@ -37,6 +37,12 @@ async function findAddonDirectories(roots, maxDepth = 5) {
       } catch {
         continue;
       }
+      // MarginNote installs extracted add-ons under their addonid, without a
+      // .mnaddon suffix. Discover the manifest; inspectAddon validates its ID.
+      if (entries.some((entry) => entry.isFile() && entry.name === "mnaddon.json")) {
+        results.push(directory);
+        continue;
+      }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const child = path.join(directory, entry.name);

@@ -4,6 +4,8 @@ Codex / Claude / Claudian → stdio MCP → Homebrew 管理的共享 RPC Host �
 
 0.9.2 将桥接服务、管理面板和插件打包纳入 Homebrew 安装。共享 RPC Host 与本地管理页由一个后台 supervisor 管理，随 MarginNote 启停；stdio MCP 仍由 Codex、Claude、Claudian 等客户端按需启动。卡片阅读提供文字、评论、关系与可用图片；知识归纳、手写视觉理解和问答由客户端 Agent 完成。Host 和 Add-on 不调用模型。逐工具审查及旧能力映射见 [TOOL_REVIEW.md](docs/TOOL_REVIEW.md)。
 
+0.9.3 修复 dashboard 对已安装插件的误报：支持 MarginNote 解包后以 addonid 命名的目录，并校验其中的 `mnaddon.json`。现有 0.9.2 Add-on 无需重装；Homebrew 用户执行 `brew update`、`brew upgrade marginnote-agent` 后重启服务即可，MCP wrapper 路径不变。升级后的 Host/CLI 版本为 0.9.3，Add-on 仍为 0.9.2，这是正常的独立版本管理。
+
 ## 安装与启动
 
 需要 macOS、Homebrew、MarginNote 4。Formula 会安装 Node.js 和锁定的依赖。Xcode Command Line Tools 只在重新构建插件或使用本地 PDF OCR 时需要。

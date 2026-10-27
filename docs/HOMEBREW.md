@@ -115,6 +115,11 @@ versioned `Cellar/.../libexec` directory does not.
 
 ## Upgrade
 
+Host/CLI 0.9.3 fixes dashboard detection of extracted add-ons installed in
+`MarginNote Extensions/<addonid>/`. It checks `mnaddon.json` rather than
+requiring a `.mnaddon` directory suffix. The bundled/installed Add-on can
+remain at 0.9.2; no Add-on reinstall or MCP command change is required.
+
 ```sh
 brew update
 brew upgrade marginnote-agent
@@ -217,9 +222,10 @@ curl http://127.0.0.1:42118/health
   supervisor deliberately leaves unrelated listeners alone.
 - **Dashboard is up but the bridge is stopped:** open MarginNote 4. The
   supervisor follows MarginNote rather than keeping the bridge alive forever.
-- **Add-on not detected:** use `marginnote-agent status`, check MarginNote's
-  extension manager, or set `MN_AGENT_ADDON_PATH` to the installed
-  `.mnaddon` directory.
+- **Add-on not detected:** first upgrade the Host/CLI to at least 0.9.3 and
+  restart the service. Use `marginnote-agent status`, check MarginNote's
+  extension manager, or set `MN_AGENT_ADDON_PATH` to the extracted directory
+  containing `mnaddon.json` (for example, `MarginNote Extensions/com.marginnote.agent.host`).
 - **MCP reports a different installation:** regenerate `mcp-config` after
   upgrading and reconnect the client.
 - **Logs are empty:** confirm the log path with `marginnote-agent status

@@ -36,7 +36,7 @@ export function createBridgeHost({ port = 42117, timeoutMs = 15000, checkRunning
       }
       const url = new URL(req.url, `http://${authority}`);
       if (req.method === 'GET' && url.pathname === '/health') {
-        send(res, 200, { service: SERVICE, protocol: PROTOCOL, version: '0.9.2', online: bridge.status().online, writes_enabled: writesEnabled, note_media_rendering: 'host' });
+        send(res, 200, { service: SERVICE, protocol: PROTOCOL, version: '0.9.3', online: bridge.status().online, writes_enabled: writesEnabled, note_media_rendering: 'host' });
         return;
       }
       if (req.method === 'GET' && url.pathname === '/api/marginnote/next') {

@@ -3,7 +3,7 @@ class MarginnoteAgent < Formula
   homepage "https://github.com/alexjinrj/marginnote-agent"
   url "https://github.com/alexjinrj/marginnote-agent.git",
       revision: "157b4e2e2898f0da0a438ce744ccec087118e987"
-  version "0.9.2"
+  version "0.9.3"
   # This fork does not currently include a license file, so the formula does
   # not assert one. Add a license to the repository before publishing a tap.
 
@@ -57,7 +57,7 @@ class MarginnoteAgent < Formula
   end
 
   test do
-    assert_equal "0.9.2", shell_output("#{bin}/mn-agent --version").strip
+    assert_equal "0.9.3", shell_output("#{bin}/mn-agent --version").strip
     assert_predicate libexec/"share/marginnote-agent.mnaddon", :exist?
     assert_predicate libexec/"mcp/src/index.mjs", :exist?
     assert_predicate bin/"marginnote-agent-mcp", :exist?
